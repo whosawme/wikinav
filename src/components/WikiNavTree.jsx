@@ -574,7 +574,7 @@ const WikiNavTree = () => {
       >
         <div className="h-full flex flex-col">
           <h2 className="text-xl font-bold p-4 bg-white border-b shadow-sm">
-            Navigation History
+            WIKINAV
           </h2>
           <div className="flex-1 overflow-hidden">
             <svg
