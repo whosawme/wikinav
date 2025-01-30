@@ -1,13 +1,12 @@
 # WikiNav
 Because going down the rabbit hole isnt linear.
 Tool for navigating Wikipedia and plotting your page visits.  
-Pull the repo locally or test it out at https://Wikinav.com 
+Pull the repo locally or test it out at https://wikinav.com 
 
 ## Overview
 
-This React application provides an interactive visualization of Wikipedia page navigation, allowing users to explore Wikipedia content through an intuitive tree-like interface. The app lets you:
-- Load Wikipedia pages by URL
-- Navigate through a visual graph of connected pages
+- Search Wikipedia pages by terms or URL
+- Navigate through a visual graph of your visits
 - Zoom and pan the navigation graph
 - View Wikipedia content in real-time
 
@@ -37,7 +36,7 @@ In the project directory, you can run:
 
 ### `npm start`
 Runs the app in development mode.
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Open [http://localhost:5173/] to view it in your browser.
 
 ### `npm run build`
 Builds the app for production to the `build` folder.
@@ -56,11 +55,10 @@ Builds the app for production to the `build` folder.
 
 ## Usage Tips
 
-1. Enter a full Wikipedia URL (e.g., `https://en.wikipedia.org/wiki/React_(JavaScript_library)`)
-2. Click "Load" or use the "Load Wikipedia Home Page" button
+1. Search Wikipedia or enter full Wikipedia URL (e.g., `https://en.wikipedia.org/wiki/React_(JavaScript_library)`)
 3. Navigate through pages by:
+   - Clicking internal links in the content area, or
    - Clicking nodes in the graph
-   - Clicking internal links in the content area
 
 ## Technical Details
 
@@ -76,9 +74,9 @@ Builds the app for production to the `build` folder.
 Contribs welcome..
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
+2. Create your feature branch (`git checkout -b feature/UsefulFeature`)
+3. Commit your changes (`git commit -m 'Added some Useful Feature'`)
+4. Push to the branch (`git push origin feature/UsefulFeature`)
 5. Open a Pull Request
 
 ## License
