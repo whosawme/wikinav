@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
+// Node component remains the same
 const Node = ({ x, y, title, isActive, onClick }) => (
   <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }}>
     <circle 
@@ -18,6 +19,7 @@ const Node = ({ x, y, title, isActive, onClick }) => (
   </g>
 );
 
+// Edge component remains the same
 const Edge = ({ startX, startY, endX, endY }) => (
   <line 
     x1={startX} 
@@ -29,16 +31,50 @@ const Edge = ({ startX, startY, endX, endY }) => (
   />
 );
 
+// Resizer component
+const Resizer = ({ onMouseDown }) => (
+  <div
+    className="w-2 cursor-col-resize bg-gray-200 hover:bg-gray-300 active:bg-gray-400"
+    onMouseDown={onMouseDown}
+  />
+);
+
 const WikiNavTree = () => {
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
-  const [urlInput, setUrlInput] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const [wikiContent, setWikiContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [leftPaneWidth, setLeftPaneWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState(false);
+  const containerRef = useRef(null);
+
+  // Function to search Wikipedia
+  const searchWikipedia = async (query) => {
+    try {
+      const response = await fetch(
+        `https://en.wikipedia.org/w/api.php?` +
+        `action=opensearch&` +
+        `search=${encodeURIComponent(query)}&` +
+        `format=json&` +
+        `origin=*`
+      );
+      const [term, titles, descriptions, urls] = await response.json();
+      return titles.map((title, i) => ({
+        title,
+        description: descriptions[i],
+        url: urls[i]
+      }));
+    } catch (error) {
+      console.error('Error searching Wikipedia:', error);
+      return [];
+    }
+  };
 
   // Function to fetch Wikipedia content
   const fetchWikiContent = async (title) => {
@@ -65,7 +101,105 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle zoom with mouse wheel
+  // Handle input changes
+  const handleInputChange = async (e) => {
+    const value = e.target.value;
+    setSearchInput(value);
+    
+    if (value.trim() && !value.startsWith('http')) {
+      const results = await searchWikipedia(value);
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
+    }
+  };
+
+  // Handle resizing
+  const handleResizeStart = (e) => {
+    setIsResizing(true);
+    e.preventDefault();
+  };
+
+  const handleResizeMove = (e) => {
+    if (isResizing && containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - containerRect.left;
+      setLeftPaneWidth(Math.max(200, Math.min(newWidth, window.innerWidth - 400)));
+    }
+  };
+
+  const handleResizeEnd = () => {
+    setIsResizing(false);
+  };
+
+  // Load Wikipedia home page on component mount
+  useEffect(() => {
+    const loadHomePage = async () => {
+      const content = await fetchWikiContent('Main_Page');
+      if (content) {
+        const homePage = {
+          id: '1',
+          title: 'Main Page',
+          url: 'https://en.wikipedia.org/wiki/Main_Page',
+          content,
+          x: 200,
+          y: 50,
+          children: []
+        };
+        setPages([homePage]);
+        setActivePage(homePage);
+        setWikiContent(content);
+      }
+    };
+    loadHomePage();
+  }, []);
+
+  // Extract page title from Wikipedia URL
+  const extractPageTitle = (url) => {
+    try {
+      const urlObj = new URL(url);
+      if (urlObj.hostname.includes('wikipedia.org')) {
+        const pathParts = urlObj.pathname.split('/');
+        return {
+          title: decodeURIComponent(pathParts[pathParts.length - 1]),
+          url: url
+        };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Clear search results
+    setSearchResults([]);
+    
+    // Check if input is a URL
+    const pageInfo = extractPageTitle(searchInput);
+    
+    if (pageInfo) {
+      // Handle URL directly
+      await loadNewPage(pageInfo);
+    } else {
+      // Handle as search term - load first result
+      const results = await searchWikipedia(searchInput);
+      if (results.length > 0) {
+        const firstResult = results[0];
+        await loadNewPage({
+          title: firstResult.title,
+          url: firstResult.url
+        });
+      }
+    }
+    
+    setSearchInput('');
+  };
+
+  // Mouse interaction handlers for pan and zoom
   const handleWheel = (e) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -74,7 +208,6 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle pan with mouse drag
   const handleMouseDown = (e) => {
     if (e.button === 0) { // Left click only
       setIsDragging(true);
@@ -98,25 +231,13 @@ const WikiNavTree = () => {
     setIsDragging(false);
   };
 
-  // Function to extract page title from Wikipedia URL
-  const extractPageTitle = (url) => {
-    try {
-      const urlObj = new URL(url);
-      if (urlObj.hostname.includes('wikipedia.org')) {
-        const pathParts = urlObj.pathname.split('/');
-        return {
-          title: decodeURIComponent(pathParts[pathParts.length - 1]),
-          url: url
-        };
-      }
-      throw new Error('Not a Wikipedia URL');
-    } catch (e) {
-      alert('Please enter a valid Wikipedia URL');
-      return null;
-    }
+  // Handle node click
+  const handleNodeClick = (page) => {
+    setActivePage(page);
+    setWikiContent(page.content);
   };
 
-  // Handle internal link clicks
+  // Handle wiki link clicks
   const handleWikiLinkClick = async (e) => {
     if (e.target.tagName === 'A') {
       e.preventDefault();
@@ -143,101 +264,66 @@ const WikiNavTree = () => {
     return { x, y };
   };
 
-    // Modified loadNewPage function to handle revisits
-    const loadNewPage = async (pageInfo) => {
-        const content = await fetchWikiContent(pageInfo.title);
-        if (content) {
-          // Check if this page already exists in the tree
-          const existingPage = pages.find(p => 
-            p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
-          );
-    
-          if (existingPage) {
-            // If we're coming from a different page, add the new connection
-            if (activePage && activePage.id !== existingPage.id && 
-                !activePage.children.includes(existingPage.id)) {
-              setPages(prevPages => {
-                const updatedPages = [...prevPages];
-                const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
-                if (activePageIndex !== -1) {
-                  updatedPages[activePageIndex].children.push(existingPage.id);
-                }
-                return updatedPages;
-              });
+  // Load new page
+  const loadNewPage = async (pageInfo) => {
+    const content = await fetchWikiContent(pageInfo.title);
+    if (content) {
+      // Check if this page already exists in the tree
+      const existingPage = pages.find(p => 
+        p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
+      );
+
+      if (existingPage) {
+        // If we're coming from a different page, add the new connection
+        if (activePage && activePage.id !== existingPage.id && 
+            !activePage.children.includes(existingPage.id)) {
+          setPages(prevPages => {
+            const updatedPages = [...prevPages];
+            const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
+            if (activePageIndex !== -1) {
+              updatedPages[activePageIndex].children.push(existingPage.id);
             }
-            // Switch to the existing page
-            setActivePage(existingPage);
-            setWikiContent(existingPage.content);
-          } else {
-            // Create new page if it doesn't exist
-            if (pages.length === 0) {
-              // Create first node
-              const newPage = {
-                id: '1',
-                title: pageInfo.title.replace(/_/g, ' '),
-                url: pageInfo.url,
-                content,
-                x: 200,
-                y: 50,
-                children: []
-              };
-              setPages([newPage]);
-              setActivePage(newPage);
-              setWikiContent(content);
-            } else {
-              // Calculate position considering all connected nodes
-              const connectedNodes = activePage.children.length;
-              const position = calculateNodePosition(
-                activePage.x, 
-                activePage.y, 
-                connectedNodes,
-                connectedNodes + 1
-              );
-    
-              const newPage = {
-                id: String(pages.length + 1),
-                title: pageInfo.title.replace(/_/g, ' '),
-                url: pageInfo.url,
-                content,
-                x: position.x,
-                y: position.y,
-                children: []
-              };
-              
-              setPages(prevPages => {
-                const updatedPages = [...prevPages];
-                const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
-                if (activePageIndex !== -1) {
-                  updatedPages[activePageIndex].children.push(newPage.id);
-                }
-                return [...updatedPages, newPage];
-              });
-              setActivePage(newPage);
-              setWikiContent(content);
+            return updatedPages;
+          });
+        }
+        // Switch to the existing page
+        setActivePage(existingPage);
+        setWikiContent(content);
+      } else {
+        // Create new page if it doesn't exist
+        const position = pages.length === 0 
+          ? { x: 200, y: 50 }
+          : calculateNodePosition(
+              activePage.x, 
+              activePage.y, 
+              activePage.children.length,
+              activePage.children.length + 1
+            );
+
+        const newPage = {
+          id: String(pages.length + 1),
+          title: pageInfo.title.replace(/_/g, ' '),
+          url: pageInfo.url,
+          content,
+          x: position.x,
+          y: position.y,
+          children: []
+        };
+        
+        setPages(prevPages => {
+          const updatedPages = [...prevPages];
+          if (activePage) {
+            const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
+            if (activePageIndex !== -1) {
+              updatedPages[activePageIndex].children.push(newPage.id);
             }
           }
-        }
-      };
-      
-  // Handle URL submission
-  const handleUrlSubmit = async (e) => {
-    e.preventDefault();
-    const pageInfo = extractPageTitle(urlInput);
-    if (pageInfo) {
-      await loadNewPage(pageInfo);
-      setUrlInput('');
+          return [...updatedPages, newPage];
+        });
+        setActivePage(newPage);
+        setWikiContent(content);
+      }
     }
-  };
-
-  // Handle clicking on Wikipedia home page link
-  const handleHomePageClick = () => {
-    setUrlInput('https://en.wikipedia.org/wiki/Main_Page');
-  };
-
-  // Handle node click
-  const handleNodeClick = (page) => {
-    setActivePage(page);
-    setWikiContent(page.content);
   };
 
   // Render edges between connected nodes
@@ -258,92 +344,99 @@ const WikiNavTree = () => {
     );
   };
 
-  useEffect(() => {
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
-
+  // Modified render method
   return (
-    <div className="flex h-screen">
+    <div 
+      ref={containerRef}
+      className="flex h-screen"
+      onMouseMove={handleResizeMove}
+      onMouseUp={handleResizeEnd}
+    >
       {/* Navigation Graph */}
-      <div className="w-1/3 p-4 border-r">
-        <h2 className="text-xl font-bold mb-4">Navigation History</h2>
-        <div 
-          className="border rounded bg-gray-50 overflow-hidden"
-          style={{ width: '400px', height: '600px' }}
-          onWheel={handleWheel}
-        >
-          <svg
-            width="400"
-            height="600"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-          >
-            <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-              {renderEdges()}
-              {pages.map(page => (
-                <Node
-                  key={page.id}
-                  x={page.x}
-                  y={page.y}
-                  title={page.title}
-                  isActive={activePage && page.id === activePage.id}
-                  onClick={() => handleNodeClick(page)}
-                />
-              ))}
-            </g>
-          </svg>
+      <div 
+        className="h-full border-r bg-white"
+        style={{ width: `${leftPaneWidth}px` }}
+      >
+        <div className="h-full flex flex-col">
+          <h2 className="text-xl font-bold p-4">Navigation History</h2>
+          <div className="flex-1 overflow-hidden">
+            <svg
+              width="100%"
+              height="100%"
+              onWheel={handleWheel}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+            >
+              <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+                {renderEdges()}
+                {pages.map(page => (
+                  <Node
+                    key={page.id}
+                    x={page.x}
+                    y={page.y}
+                    title={page.title}
+                    isActive={activePage && page.id === activePage.id}
+                    onClick={() => handleNodeClick(page)}
+                  />
+                ))}
+              </g>
+            </svg>
+          </div>
         </div>
       </div>
 
-      {/* Wikipedia Content Viewer */}
-      <div className="w-2/3 p-4 flex flex-col">
-        <form onSubmit={handleUrlSubmit} className="mb-4">
-          <div className="flex gap-2">
+      {/* Resizer */}
+      <Resizer onMouseDown={handleResizeStart} />
+
+      {/* Content Area */}
+      <div className="flex-1 flex flex-col p-4 min-w-[400px]">
+        {/* Search/URL Input */}
+        <form onSubmit={handleSubmit} className="mb-4">
+          <div className="relative">
             <input
-              type="url"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="Enter Wikipedia URL..."
-              className="flex-1 p-2 border rounded"
-              required
+              type="text"
+              value={searchInput}
+              onChange={handleInputChange}
+              placeholder="Enter Wikipedia URL or search term..."
+              className="w-full p-2 border rounded"
             />
-            <button 
-              type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            >
-              Load
-            </button>
+            {searchResults.length > 0 && (
+              <div className="absolute w-full mt-1 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+                {searchResults.map((result, index) => (
+                  <div
+                    key={index}
+                    className="p-2 hover:bg-gray-100 cursor-pointer"
+                    onClick={async () => {
+                      await loadNewPage({
+                        title: result.title,
+                        url: result.url
+                      });
+                      setSearchInput('');
+                      setSearchResults([]);
+                    }}
+                  >
+                    <div className="font-medium">{result.title}</div>
+                    <div className="text-sm text-gray-600">{result.description}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </form>
 
-        <div className="mb-4">
-          <button
-            onClick={handleHomePageClick}
-            className="text-blue-500 hover:underline"
-          >
-            Load Wikipedia Home Page
-          </button>
-        </div>
-        
+        {/* Content Viewer */}
         <div className="flex-1 border rounded p-4 overflow-auto">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-xl">Loading...</div>
             </div>
-          ) : activePage ? (
+          ) : (
             <div 
               onClick={handleWikiLinkClick}
               dangerouslySetInnerHTML={{ __html: wikiContent }}
               className="wiki-content"
             />
-          ) : (
-            <div className="text-gray-500">
-              Enter a Wikipedia URL above or click "Load Wikipedia Home Page" to get started
-            </div>
           )}
         </div>
       </div>
