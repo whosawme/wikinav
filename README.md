@@ -1,4 +1,7 @@
-# Wikipedia Navigation Tree
+# WikiNav
+Because going down the rabbit hole isnt linear.
+Tool for navigating Wikipedia and plotting your page visits.  
+Pull the repo locally or test it out at https://Wikinav.com 
 
 ## Overview
 
