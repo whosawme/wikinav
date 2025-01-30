@@ -40,6 +40,10 @@ const Resizer = ({ onMouseDown }) => (
 );
 
 const WikiNavTree = () => {
+  // Set document title on component mount
+  useEffect(() => {
+    document.title = 'WikiNav';
+  }, []);
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
   const [searchInput, setSearchInput] = useState('');
