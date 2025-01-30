@@ -19,8 +19,8 @@ Before you begin, ensure you have the following installed:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/wiki-nav-tree.git
-cd wiki-nav-tree
+git clone https://github.com/whosawme/wikinav.git
+cd wikinav
 ```
 
 2. Install dependencies:
@@ -62,16 +62,15 @@ Builds the app for production to the `build` folder.
 ## Technical Details
 
 - Built with React
-- Uses SVG for navigation graph rendering
+- Uses SVG for navigation graph rendering (open to other visualization approaches)
 - Utilizes Wikipedia's public API for content fetching
 
 ## Limitations
-
-- Requires an internet connection
-- Works best with English Wikipedia
 - Some dynamic content may not render perfectly
 
 ## Contributing
+
+Contribs welcome..
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
