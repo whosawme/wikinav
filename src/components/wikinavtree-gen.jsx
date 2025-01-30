@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import * as d3 from 'd3';
 
 const Node = ({ x, y, title, isActive, onClick }) => (
   <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }}>
-    <circle 
-      r="20" 
-      fill={isActive ? '#3B82F6' : '#fff'} 
-      stroke="#000" 
+    <circle
+      r="20"
+      fill={isActive ? '#3B82F6' : '#fff'}
+      stroke="#000"
       strokeWidth="2"
     />
-    <text 
-      textAnchor="middle" 
+    <text
+      textAnchor="middle"
       dy="40"
       className={`text-sm ${isActive ? 'font-bold' : ''}`}
     >
@@ -19,12 +20,12 @@ const Node = ({ x, y, title, isActive, onClick }) => (
 );
 
 const Edge = ({ startX, startY, endX, endY }) => (
-  <line 
-    x1={startX} 
-    y1={startY} 
-    x2={endX} 
-    y2={endY} 
-    stroke="#666" 
+  <line
+    x1={startX}
+    y1={startY}
+    x2={endX}
+    y2={endY}
+    stroke="#666"
     strokeWidth="2"
   />
 );
@@ -35,12 +36,12 @@ const WikiNavTree = () => {
   const [urlInput, setUrlInput] = useState('');
   const [wikiContent, setWikiContent] = useState('');
   const [loading, setLoading] = useState(false);
+  const svgRef = useRef(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Function to fetch Wikipedia content
   const fetchWikiContent = async (title) => {
     try {
       setLoading(true);
@@ -65,7 +66,36 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle zoom with mouse wheel
+  const treeLayout = d3.tree().nodeSize([150, 200]);
+
+  const updateGraph = () => {
+    if (pages.length === 0) return;
+
+    const rootData = pages.find(page => !page.parent);
+    if (!rootData) {
+      console.error("No root node found in the page data.");
+      return;
+    }
+
+    const root = d3.hierarchy(rootData, (d) => {
+      return pages.filter(page => page.parent === d.id);
+    });
+
+    treeLayout(root);
+    const nodes = root.descendants();
+
+    setPages(prevPages => {
+      return prevPages.map(page => {
+        const correspondingNode = nodes.find(node => node.data.id === page.id);
+        return correspondingNode ? { ...page, x: correspondingNode.x, y: correspondingNode.y } : page;
+      });
+    });
+  };
+
+  useEffect(() => {
+    updateGraph();
+  }, [pages]);
+
   const handleWheel = (e) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -74,13 +104,12 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle pan with mouse drag
   const handleMouseDown = (e) => {
-    if (e.button === 0) { // Left click only
+    if (e.button === 0) {
       setIsDragging(true);
-      setDragStart({ 
-        x: e.clientX - pan.x, 
-        y: e.clientY - pan.y 
+      setDragStart({
+        x: e.clientX - pan.x,
+        y: e.clientY - pan.y
       });
     }
   };
@@ -98,7 +127,6 @@ const WikiNavTree = () => {
     setIsDragging(false);
   };
 
-  // Function to extract page title from Wikipedia URL
   const extractPageTitle = (url) => {
     try {
       const urlObj = new URL(url);
@@ -116,7 +144,6 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle internal link clicks
   const handleWikiLinkClick = async (e) => {
     if (e.target.tagName === 'A') {
       e.preventDefault();
@@ -129,97 +156,37 @@ const WikiNavTree = () => {
     }
   };
 
-  // Calculate node position
-  const calculateNodePosition = (parentX, parentY, index, siblingCount) => {
-    const levelSpacing = 120;  // Vertical space between levels
-    const nodeSpacing = 100;   // Horizontal space between siblings
-    const totalWidth = (siblingCount - 1) * nodeSpacing;
-    
-    // Calculate x position spreading siblings evenly
-    const x = parentX - totalWidth/2 + (index * nodeSpacing);
-    // Y position is fixed distance below parent
-    const y = parentY + levelSpacing;
-    
-    return { x, y };
+  const loadNewPage = async (pageInfo) => {
+    const content = await fetchWikiContent(pageInfo.title);
+    if (content) {
+      const existingPage = pages.find(p =>
+        p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
+      );
+  
+      if (existingPage) {
+        setActivePage(existingPage);
+        setWikiContent(existingPage.content);
+      } else {
+        const newPage = {
+          id: String(pages.length + 1),
+          title: pageInfo.title.replace(/_/g, ' '),
+          url: pageInfo.url,
+          content,
+          parent: activePage ? activePage.id : null,  // Correctly set parent for subsequent pages
+          children: [],
+        };
+  
+        if (pages.length === 0) { // Special handling for the VERY FIRST page
+          newPage.parent = null; // VERY IMPORTANT: Set parent to null for the initial page!
+        }
+  
+        setPages(prevPages => [...prevPages, newPage]);
+        setActivePage(newPage);
+        setWikiContent(content);
+      }
+    }
   };
 
-    // Modified loadNewPage function to handle revisits
-    const loadNewPage = async (pageInfo) => {
-        const content = await fetchWikiContent(pageInfo.title);
-        if (content) {
-          // Check if this page already exists in the tree
-          const existingPage = pages.find(p => 
-            p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
-          );
-    
-          if (existingPage) {
-            // If we're coming from a different page, add the new connection
-            if (activePage && activePage.id !== existingPage.id && 
-                !activePage.children.includes(existingPage.id)) {
-              setPages(prevPages => {
-                const updatedPages = [...prevPages];
-                const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
-                if (activePageIndex !== -1) {
-                  updatedPages[activePageIndex].children.push(existingPage.id);
-                }
-                return updatedPages;
-              });
-            }
-            // Switch to the existing page
-            setActivePage(existingPage);
-            setWikiContent(existingPage.content);
-          } else {
-            // Create new page if it doesn't exist
-            if (pages.length === 0) {
-              // Create first node
-              const newPage = {
-                id: '1',
-                title: pageInfo.title.replace(/_/g, ' '),
-                url: pageInfo.url,
-                content,
-                x: 200,
-                y: 50,
-                children: []
-              };
-              setPages([newPage]);
-              setActivePage(newPage);
-              setWikiContent(content);
-            } else {
-              // Calculate position considering all connected nodes
-              const connectedNodes = activePage.children.length;
-              const position = calculateNodePosition(
-                activePage.x, 
-                activePage.y, 
-                connectedNodes,
-                connectedNodes + 1
-              );
-    
-              const newPage = {
-                id: String(pages.length + 1),
-                title: pageInfo.title.replace(/_/g, ' '),
-                url: pageInfo.url,
-                content,
-                x: position.x,
-                y: position.y,
-                children: []
-              };
-              
-              setPages(prevPages => {
-                const updatedPages = [...prevPages];
-                const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
-                if (activePageIndex !== -1) {
-                  updatedPages[activePageIndex].children.push(newPage.id);
-                }
-                return [...updatedPages, newPage];
-              });
-              setActivePage(newPage);
-              setWikiContent(content);
-            }
-          }
-        }
-      };
-      
-  // Handle URL submission
   const handleUrlSubmit = async (e) => {
     e.preventDefault();
     const pageInfo = extractPageTitle(urlInput);
@@ -229,33 +196,36 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle clicking on Wikipedia home page link
   const handleHomePageClick = () => {
     setUrlInput('https://en.wikipedia.org/wiki/Main_Page');
   };
 
-  // Handle node click
   const handleNodeClick = (page) => {
     setActivePage(page);
     setWikiContent(page.content);
   };
 
-  // Render edges between connected nodes
   const renderEdges = () => {
-    return pages.flatMap(page => 
-      page.children.map(childId => {
-        const child = pages.find(p => p.id === childId);
-        return child ? (
-          <Edge 
-            key={`${page.id}-${childId}`}
-            startX={page.x}
-            startY={page.y}
-            endX={child.x}
-            endY={child.y}
-          />
-        ) : null;
-      })
-    );
+    if (pages.length === 0) return null;
+
+    const rootData = pages.find(page => !page.parent);
+    if (!rootData) return null;
+
+    const root = d3.hierarchy(rootData, (d) => {
+      return pages.filter(page => page.parent === d.id);
+    });
+
+    const links = root.links();
+
+    return links.map((link, i) => (
+      <Edge
+        key={i}
+        startX={link.source.x}
+        startY={link.source.y}
+        endX={link.target.x}
+        endY={link.target.y}
+      />
+    ));
   };
 
   useEffect(() => {
@@ -267,15 +237,15 @@ const WikiNavTree = () => {
 
   return (
     <div className="flex h-screen">
-      {/* Navigation Graph */}
       <div className="w-1/3 p-4 border-r">
         <h2 className="text-xl font-bold mb-4">Navigation History</h2>
-        <div 
+        <div
           className="border rounded bg-gray-50 overflow-hidden"
           style={{ width: '400px', height: '600px' }}
           onWheel={handleWheel}
         >
           <svg
+            ref={svgRef}
             width="400"
             height="600"
             onMouseDown={handleMouseDown}
@@ -299,7 +269,6 @@ const WikiNavTree = () => {
         </div>
       </div>
 
-      {/* Wikipedia Content Viewer */}
       <div className="w-2/3 p-4 flex flex-col">
         <form onSubmit={handleUrlSubmit} className="mb-4">
           <div className="flex gap-2">
@@ -311,7 +280,7 @@ const WikiNavTree = () => {
               className="flex-1 p-2 border rounded"
               required
             />
-            <button 
+            <button
               type="submit"
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
             >
@@ -328,21 +297,21 @@ const WikiNavTree = () => {
             Load Wikipedia Home Page
           </button>
         </div>
-        
+
         <div className="flex-1 border rounded p-4 overflow-auto">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-xl">Loading...</div>
             </div>
           ) : activePage ? (
-            <div 
+            <div
               onClick={handleWikiLinkClick}
               dangerouslySetInnerHTML={{ __html: wikiContent }}
               className="wiki-content"
             />
           ) : (
             <div className="text-gray-500">
-              Enter a Wikipedia URL above or click "Load Wikipedia Home Page" to get started
+              Enter a Wikipedia URL above or click "Load Wikipedia Home Page" to get started.
             </div>
           )}
         </div>
