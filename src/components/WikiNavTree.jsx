@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Node component remains the same
 // Style customization for Wikipedia content
 const styles = `
   .wiki-content {
@@ -57,6 +56,7 @@ const styles = `
   }
 `;
 
+// Node Component
 const Node = ({ x, y, title, isActive, onClick }) => (
   <g 
     transform={`translate(${x},${y})`} 
@@ -81,7 +81,7 @@ const Node = ({ x, y, title, isActive, onClick }) => (
   </g>
 );
 
-// Edge component remains the same
+// Edge Component
 const Edge = ({ startX, startY, endX, endY }) => (
   <g>
     <defs>
@@ -113,7 +113,7 @@ const Edge = ({ startX, startY, endX, endY }) => (
   </g>
 );
 
-// Resizer component
+// Resizer Component
 const Resizer = ({ onMouseDown }) => (
   <div
     className="w-2 cursor-col-resize bg-gray-200 hover:bg-gray-300 active:bg-gray-400"
@@ -122,40 +122,40 @@ const Resizer = ({ onMouseDown }) => (
 );
 
 const WikiNavTree = () => {
-  // Set document title on component mount
-  useEffect(() => {
-    document.title = 'WikiNav';
-  }, []);
-
+  // State declarations
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
   const [searchInput, setSearchInput] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [wikiContent, setWikiContent] = useState('');
-  const [loading, setLoading] = useState(true);  // Start with loading state
+  const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [leftPaneWidth, setLeftPaneWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
+  const [navigationHistory, setNavigationHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Refs
   const containerRef = useRef(null);
   const svgRef = useRef(null);
 
-  // Load homepage content but don't add to tree
+  // Set document title
+  useEffect(() => {
+    document.title = 'WikiNav';
+  }, []);
+
+  // Load homepage
   useEffect(() => {
     const fetchHomePage = async () => {
       try {
         const response = await fetch(
-          `https://en.wikipedia.org/w/api.php?` +
-          `action=parse&` +
-          `page=Main_Page&` +
-          `format=json&` +
-          `origin=*&` +
-          `prop=text`
+          `https://en.wikipedia.org/w/api.php?action=parse&page=Main_Page&format=json&origin=*&prop=text`
         );
         const data = await response.json();
-        if (data.parse && data.parse.text) {
+        if (data.parse?.text) {
           setWikiContent(data.parse.text['*']);
         }
       } catch (error) {
@@ -168,102 +168,7 @@ const WikiNavTree = () => {
     fetchHomePage();
   }, []);
 
-  // Navigation history
-  const [navigationHistory, setNavigationHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-
-  // Function to check if a Wikipedia page is a disambiguation or image page
-  const checkPageType = async (title) => {
-    try {
-      const response = await fetch(
-        `https://en.wikipedia.org/w/api.php?` +
-        `action=query&` +
-        `prop=categories|pageprops&` +
-        `titles=${encodeURIComponent(title)}&` +
-        `format=json&` +
-        `origin=*`
-      );
-      const data = await response.json();
-      const page = Object.values(data.query.pages)[0];
-      
-      // Check for disambiguation pages
-      if (page.pageprops && page.pageprops.disambiguation !== undefined) {
-        return 'disambiguation';
-      }
-      
-      // Check for image/file pages
-      if (page.categories) {
-        const isImagePage = page.categories.some(cat => 
-          cat.title.includes('Image:') || 
-          cat.title.includes('File:') ||
-          cat.title.includes('Category:Images')
-        );
-        if (isImagePage) return 'image';
-      }
-      
-      return 'article';
-    } catch (error) {
-      console.error('Error checking page type:', error);
-      return 'unknown';
-    }
-  };
-
-  // Function to find graph boundaries
-  const getGraphBoundaries = () => {
-    if (pages.length === 0) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
-    
-    return pages.reduce((bounds, page) => ({
-      minX: Math.min(bounds.minX, page.x - 50),  // Add padding for nodes
-      maxX: Math.max(bounds.maxX, page.x + 50),
-      minY: Math.min(bounds.minY, page.y - 50),
-      maxY: Math.max(bounds.maxY, page.y + 50)
-    }), {
-      minX: pages[0].x,
-      maxX: pages[0].x,
-      minY: pages[0].y,
-      maxY: pages[0].y
-    });
-  };
-
-  // Function to fit graph to view
-  const handleFitGraph = () => {
-    if (svgRef.current && pages.length > 0) {
-      const svg = svgRef.current;
-      const bounds = getGraphBoundaries();
-      const padding = 50;  // Padding from edges
-      
-      const svgWidth = svg.clientWidth - (padding * 2);
-      const svgHeight = svg.clientHeight - (padding * 2);
-      const graphWidth = bounds.maxX - bounds.minX;
-      const graphHeight = bounds.maxY - bounds.minY;
-      
-      const scale = Math.min(
-        svgWidth / graphWidth,
-        svgHeight / graphHeight,
-        1.5  // Maximum zoom out
-      );
-      
-      setZoom(scale);
-      setPan({
-        x: (svgWidth / 2) - ((bounds.minX + graphWidth / 2) * scale) + padding,
-        y: (svgHeight / 2) - ((bounds.minY + graphHeight / 2) * scale) + padding
-      });
-    }
-  };
-
-  // Function to center graph
-  const handleCenterGraph = () => {
-    if (pages.length > 0) {
-      const rootNode = pages[0];
-      setPan({
-        x: 50,  // Position root node at left edge with small padding
-        y: 50   // Position at top with small padding
-      });
-      setZoom(1);
-    }
-  };
-
-  // Add global mouse handlers
+  // Global mouse handlers
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       setIsDragging(false);
@@ -293,64 +198,73 @@ const WikiNavTree = () => {
     };
   }, [isDragging, isResizing, dragStart]);
 
-  // Handle wheel zoom
-  const handleWheel = (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.1 : -0.1;
-      setZoom(z => Math.min(Math.max(0.5, z + delta), 2));
-    }
-  };
-
-  const handleMouseDown = (e) => {
-    if (e.button === 0) { // Left click only
-      setIsDragging(true);
-      setDragStart({ 
-        x: e.clientX - pan.x, 
-        y: e.clientY - pan.y 
-      });
-    }
-  };
-
-  // Handle resizing
-  const handleResizeStart = (e) => {
-    setIsResizing(true);
-    e.preventDefault();
-  };
-
-  // Handle node click
-  const handleNodeClick = (page) => {
-    setActivePage(page);
-    setWikiContent(page.content);
-  };
-
-  // Handle back navigation
-  const handleBack = () => {
-    if (historyIndex > 0) {
-      const previousPage = navigationHistory[historyIndex - 1];
-      setActivePage(previousPage);
-      setWikiContent(previousPage.content);
-      setHistoryIndex(prev => prev - 1);
-    }
-  };
-
   // Update history when active page changes
   useEffect(() => {
     if (activePage && (navigationHistory[historyIndex]?.id !== activePage.id)) {
       setNavigationHistory(prev => [...prev.slice(0, historyIndex + 1), activePage]);
       setHistoryIndex(prev => prev + 1);
     }
-  }, [activePage]);
+  }, [activePage, navigationHistory, historyIndex]);
 
-  // Function to search Wikipedia
+  // Helper Functions
+  const checkPageType = async (title) => {
+    try {
+      const response = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&prop=categories|pageprops&titles=${encodeURIComponent(title)}&format=json&origin=*`
+      );
+      const data = await response.json();
+      const page = Object.values(data.query.pages)[0];
+      
+      if (page.pageprops?.disambiguation !== undefined) {
+        return 'disambiguation';
+      }
+      
+      if (page.categories?.some(cat => 
+        cat.title.includes('Image:') || 
+        cat.title.includes('File:') ||
+        cat.title.includes('Category:Images')
+      )) {
+        return 'image';
+      }
+      
+      return 'article';
+    } catch (error) {
+      console.error('Error checking page type:', error);
+      return 'unknown';
+    }
+  };
+
+  const getGraphBoundaries = () => {
+    if (pages.length === 0) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    
+    return pages.reduce((bounds, page) => ({
+      minX: Math.min(bounds.minX, page.x - 50),
+      maxX: Math.max(bounds.maxX, page.x + 50),
+      minY: Math.min(bounds.minY, page.y - 50),
+      maxY: Math.max(bounds.maxY, page.y + 50)
+    }), {
+      minX: pages[0].x,
+      maxX: pages[0].x,
+      minY: pages[0].y,
+      maxY: pages[0].y
+    });
+  };
+
+  const calculateNodePosition = (parentX, parentY, index, siblingCount) => {
+    const levelSpacing = 120;
+    const nodeSpacing = 100;
+    const totalWidth = (siblingCount - 1) * nodeSpacing;
+    
+    return {
+      x: parentX - totalWidth/2 + (index * nodeSpacing),
+      y: parentY + levelSpacing
+    };
+  };
+
   const searchWikipedia = async (query) => {
     try {
       const response = await fetch(
-        `https://en.wikipedia.org/w/api.php?` +
-        `action=opensearch&` +
-        `search=${encodeURIComponent(query)}&` +
-        `format=json&` +
-        `origin=*`
+        `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&format=json&origin=*`
       );
       const [term, titles, descriptions, urls] = await response.json();
       return titles.map((title, i) => ({
@@ -364,20 +278,14 @@ const WikiNavTree = () => {
     }
   };
 
-  // Function to fetch Wikipedia content
   const fetchWikiContent = async (title) => {
     try {
       setLoading(true);
       const response = await fetch(
-        `https://en.wikipedia.org/w/api.php?` +
-        `action=parse&` +
-        `page=${encodeURIComponent(title)}&` +
-        `format=json&` +
-        `origin=*&` +
-        `prop=text`
+        `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&origin=*&prop=text`
       );
       const data = await response.json();
-      if (data.parse && data.parse.text) {
+      if (data.parse?.text) {
         return data.parse.text['*'];
       }
       throw new Error('Failed to fetch Wikipedia content');
@@ -389,20 +297,6 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle input changes
-  const handleInputChange = async (e) => {
-    const value = e.target.value;
-    setSearchInput(value);
-    
-    if (value.trim() && !value.startsWith('http')) {
-      const results = await searchWikipedia(value);
-      setSearchResults(results);
-    } else {
-      setSearchResults([]);
-    }
-  };
-
-  // Extract page title from Wikipedia URL
   const extractPageTitle = (url) => {
     try {
       const urlObj = new URL(url);
@@ -419,14 +313,94 @@ const WikiNavTree = () => {
     }
   };
 
-  // Handle wiki link clicks
+  // Event Handlers
+  const handleWheel = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      setZoom(z => Math.min(Math.max(0.5, z + delta), 2));
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (e.button === 0) {
+      setIsDragging(true);
+      setDragStart({ 
+        x: e.clientX - pan.x, 
+        y: e.clientY - pan.y 
+      });
+    }
+  };
+
+  const handleResizeStart = (e) => {
+    setIsResizing(true);
+    e.preventDefault();
+  };
+
+  const handleNodeClick = (page) => {
+    setActivePage(page);
+    setWikiContent(page.content);
+  };
+
+  const handleBack = () => {
+    if (historyIndex > 0) {
+      const previousPage = navigationHistory[historyIndex - 1];
+      setActivePage(previousPage);
+      setWikiContent(previousPage.content);
+      setHistoryIndex(prev => prev - 1);
+    }
+  };
+
+  const handleFitGraph = () => {
+    if (svgRef.current && pages.length > 0) {
+      const svg = svgRef.current;
+      const bounds = getGraphBoundaries();
+      const padding = 50;
+      
+      const svgWidth = svg.clientWidth - (padding * 2);
+      const svgHeight = svg.clientHeight - (padding * 2);
+      const graphWidth = bounds.maxX - bounds.minX;
+      const graphHeight = bounds.maxY - bounds.minY;
+      
+      const scale = Math.min(
+        svgWidth / graphWidth,
+        svgHeight / graphHeight,
+        1.5
+      );
+      
+      setZoom(scale);
+      setPan({
+        x: (svgWidth / 2) - ((bounds.minX + graphWidth / 2) * scale) + padding,
+        y: (svgHeight / 2) - ((bounds.minY + graphHeight / 2) * scale) + padding
+      });
+    }
+  };
+
+  const handleCenterGraph = () => {
+    if (pages.length > 0) {
+      setPan({ x: 50, y: 50 });
+      setZoom(1);
+    }
+  };
+
+  const handleInputChange = async (e) => {
+    const value = e.target.value;
+    setSearchInput(value);
+    
+    if (value.trim() && !value.startsWith('http')) {
+      const results = await searchWikipedia(value);
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
+    }
+  };
+
   const handleWikiLinkClick = async (e) => {
     if (e.target.tagName === 'A') {
       e.preventDefault();
       const href = e.target.getAttribute('href');
-      if (href && href.startsWith('/wiki/')) {
+      if (href?.startsWith('/wiki/')) {
         const title = href.replace('/wiki/', '');
-        // Don't navigate to File: or Category: pages
         if (!title.startsWith('File:') && !title.startsWith('Category:')) {
           const url = `https://en.wikipedia.org${href}`;
           await loadNewPage({ title, url });
@@ -435,36 +409,37 @@ const WikiNavTree = () => {
     }
   };
 
-  // Calculate node position
-  const calculateNodePosition = (parentX, parentY, index, siblingCount) => {
-    const levelSpacing = 120;  // Vertical space between levels
-    const nodeSpacing = 100;   // Horizontal space between siblings
-    const totalWidth = (siblingCount - 1) * nodeSpacing;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSearchResults([]);
     
-    // Calculate x position spreading siblings evenly
-    const x = parentX - totalWidth/2 + (index * nodeSpacing);
-    // Y position is fixed distance below parent
-    const y = parentY + levelSpacing;
+    const pageInfo = extractPageTitle(searchInput);
     
-    return { x, y };
+    if (pageInfo) {
+      await loadNewPage(pageInfo);
+    } else {
+      const searchTitle = searchInput.replace(/\s+/g, '_');
+      await loadNewPage({
+        title: searchTitle,
+        url: `https://en.wikipedia.org/wiki/${searchTitle}`
+      });
+    }
+    
+    setSearchInput('');
   };
 
-  // Load new page
+  // Page Loading and Management
   const loadNewPage = async (pageInfo) => {
     const content = await fetchWikiContent(pageInfo.title);
     if (content) {
-      // Check page type
       const pageType = await checkPageType(pageInfo.title);
       const shouldAddToTree = pageType !== 'disambiguation' && pageType !== 'image';
       
-      // Check if this page already exists in the tree
       const existingPage = pages.find(p => 
         p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
       );
 
       if (existingPage) {
-        // If we're coming from a different page and it's not a special page type,
-        // add the new connection
         if (activePage && activePage.id !== existingPage.id && 
             !activePage.children.includes(existingPage.id) && shouldAddToTree) {
           setPages(prevPages => {
@@ -476,14 +451,12 @@ const WikiNavTree = () => {
             return updatedPages;
           });
         }
-        // Switch to the existing page regardless of type
         setActivePage(existingPage);
         setWikiContent(existingPage.content);
       } else {
-        // For initial load or regular articles, add to the tree
         if (pageInfo.isInitialLoad || shouldAddToTree) {
           const position = pages.length === 0 
-            ? { x: 50, y: 50 }  // Start root node on left side
+            ? { x: 50, y: 50 }
             : calculateNodePosition(
                 activePage.x, 
                 activePage.y, 
@@ -514,39 +487,13 @@ const WikiNavTree = () => {
           setActivePage(newPage);
           setWikiContent(content);
         } else {
-          // For disambiguation/image pages, just show the content without adding to tree
           setWikiContent(content);
         }
       }
     }
   };
 
-  // Handle search input submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    // Clear search results
-    setSearchResults([]);
-    
-    // Check if input is a URL
-    const pageInfo = extractPageTitle(searchInput);
-    
-    if (pageInfo) {
-      // Handle URL directly
-      await loadNewPage(pageInfo);
-    } else {
-      // Load the search term directly instead of auto-selecting first result
-      const searchTitle = searchInput.replace(/\s+/g, '_');
-      await loadNewPage({
-        title: searchTitle,
-        url: `https://en.wikipedia.org/wiki/${searchTitle}`
-      });
-    }
-    
-    setSearchInput('');
-  };
-
-  // Render edges between connected nodes
+  // Render Functions
   const renderEdges = () => {
     return pages.flatMap(page => 
       page.children.map(childId => {
@@ -564,17 +511,95 @@ const WikiNavTree = () => {
     );
   };
 
-  return (
-    <div ref={containerRef} className="flex h-screen bg-gray-50">
+  // Mobile detection
+const [isMobile, setIsMobile] = useState(false);
+const [isGraphVisible, setIsGraphVisible] = useState(true);
+
+// Add mobile detection
+useEffect(() => {
+  const checkMobile = () => {
+    setIsMobile(window.innerWidth < 768);
+    if (window.innerWidth < 768) {
+      setLeftPaneWidth(window.innerWidth);
+      setIsGraphVisible(false);
+    }
+  };
+
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+  return () => window.removeEventListener('resize', checkMobile);
+}, []);
+
+// Handle touch events for mobile
+const handleTouchStart = (e) => {
+  if (e.touches.length === 1) {
+    setIsDragging(true);
+    setDragStart({
+      x: e.touches[0].clientX - pan.x,
+      y: e.touches[0].clientY - pan.y
+    });
+  } else if (e.touches.length === 2) {
+    // Handle pinch zoom
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    e.currentTarget.dataset.initialPinchDistance = dist;
+    e.currentTarget.dataset.initialZoom = zoom;
+  }
+};
+
+const handleTouchMove = (e) => {
+  if (isDragging && e.touches.length === 1) {
+    setPan({
+      x: e.touches[0].clientX - dragStart.x,
+      y: e.touches[0].clientY - dragStart.y
+    });
+  } else if (e.touches.length === 2) {
+    // Handle pinch zoom
+    const initialDist = parseFloat(e.currentTarget.dataset.initialPinchDistance);
+    const initialZoom = parseFloat(e.currentTarget.dataset.initialZoom);
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const scale = (dist / initialDist) * initialZoom;
+    setZoom(Math.min(Math.max(0.5, scale), 2));
+  }
+};
+
+const handleTouchEnd = () => {
+  setIsDragging(false);
+};
+
+return (
+    <div ref={containerRef} className="flex flex-col md:flex-row h-screen bg-gray-50">
       <style>{styles}</style>
+      
+      {/* Mobile Toggle Button */}
+      {isMobile && (
+        <button
+          onClick={() => setIsGraphVisible(!isGraphVisible)}
+          className="fixed bottom-4 right-4 z-50 p-3 bg-blue-500 text-white rounded-full shadow-lg"
+        >
+          {isGraphVisible ? 'View Content' : 'View Graph'}
+        </button>
+      )}
+      
       {/* Navigation Graph */}
       <div 
-        className="h-full border-r bg-gradient-to-br from-white to-blue-50"
-        style={{ width: `${leftPaneWidth}px` }}
+        className={`${
+          isMobile 
+            ? isGraphVisible 
+              ? 'fixed inset-0 z-40' 
+              : 'hidden'
+            : 'h-full border-r'
+        } bg-gradient-to-br from-white to-blue-50`}
+        style={{ width: isMobile ? '100%' : `${leftPaneWidth}px` }}
       >
         <div className="h-full flex flex-col">
           <h2 className="text-xl font-bold p-4 bg-white border-b shadow-sm">
-            WIKINAV
+            Navigation History
           </h2>
           <div className="flex-1 overflow-hidden">
             <svg
@@ -583,7 +608,10 @@ const WikiNavTree = () => {
               height="100%"
               onWheel={handleWheel}
               onMouseDown={handleMouseDown}
-              style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
               className="transition-all duration-200"
             >
               <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
@@ -608,7 +636,11 @@ const WikiNavTree = () => {
       <Resizer onMouseDown={handleResizeStart} />
 
       {/* Content Area */}
-      <div className="flex-1 flex flex-col p-4 min-w-[400px] bg-white">
+      <div className={`flex-1 flex flex-col p-4 ${
+        isMobile ? 'min-w-0' : 'min-w-[400px]'
+      } bg-white ${
+        isMobile && isGraphVisible ? 'hidden' : ''
+      }`}>
         {/* Navigation Controls */}
         <div className="flex gap-2 mb-4">
           <button
