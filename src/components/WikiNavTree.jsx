@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Github, Download } from 'lucide-react';
 
-// Node component remains the same
 // Style customization for Wikipedia content
 const styles = `
   .wiki-content {
@@ -57,23 +57,44 @@ const styles = `
   }
 `;
 
-const Node = ({ x, y, title, isActive, onClick }) => (
+// Node component with thumbnail
+const Node = ({ x, y, title, thumbnail, isActive, onClick }) => (
   <g 
     transform={`translate(${x},${y})`} 
     onClick={onClick} 
     style={{ cursor: 'pointer' }}
     className="transition-transform duration-200 ease-in-out"
   >
+    {/* Larger circle with clipping path for thumbnail */}
+    <defs>
+      <clipPath id={`circle-clip-${title}`}>
+        <circle r="30" cx="0" cy="0" />
+      </clipPath>
+    </defs>
+    
     <circle 
-      r="20" 
+      r="30" 
       fill={isActive ? '#3B82F6' : '#fff'} 
       stroke={isActive ? '#1E40AF' : '#000'}
       strokeWidth="2"
       className="transition-all duration-200 ease-in-out shadow-lg"
     />
+    
+    {thumbnail && (
+      <image
+        x="-30"
+        y="-30"
+        width="60"
+        height="60"
+        href={thumbnail}
+        clipPath={`url(#circle-clip-${title})`}
+        preserveAspectRatio="xMidYMid slice"
+      />
+    )}
+    
     <text 
       textAnchor="middle" 
-      dy="40"
+      dy="50"
       className={`text-sm ${isActive ? 'font-bold fill-blue-600' : 'fill-gray-700'} transition-all duration-200`}
     >
       <tspan x="0" dy="0">{title.length > 20 ? title.slice(0, 20) + '...' : title}</tspan>
@@ -81,7 +102,7 @@ const Node = ({ x, y, title, isActive, onClick }) => (
   </g>
 );
 
-// Edge component remains the same
+// Edge component
 const Edge = ({ startX, startY, endX, endY }) => (
   <g>
     <defs>
@@ -132,7 +153,7 @@ const WikiNavTree = () => {
   const [searchInput, setSearchInput] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [wikiContent, setWikiContent] = useState('');
-  const [loading, setLoading] = useState(true);  // Start with loading state
+  const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -142,7 +163,11 @@ const WikiNavTree = () => {
   const containerRef = useRef(null);
   const svgRef = useRef(null);
 
-  // Load homepage content but don't add to tree
+  // Navigation history
+  const [navigationHistory, setNavigationHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Load homepage content
   useEffect(() => {
     const fetchHomePage = async () => {
       try {
@@ -168,11 +193,7 @@ const WikiNavTree = () => {
     fetchHomePage();
   }, []);
 
-  // Navigation history
-  const [navigationHistory, setNavigationHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-
-  // Function to check if a Wikipedia page is a disambiguation or image page
+  // Function to check page type
   const checkPageType = async (title) => {
     try {
       const response = await fetch(
@@ -186,12 +207,10 @@ const WikiNavTree = () => {
       const data = await response.json();
       const page = Object.values(data.query.pages)[0];
       
-      // Check for disambiguation pages
       if (page.pageprops && page.pageprops.disambiguation !== undefined) {
         return 'disambiguation';
       }
       
-      // Check for image/file pages
       if (page.categories) {
         const isImagePage = page.categories.some(cat => 
           cat.title.includes('Image:') || 
@@ -213,7 +232,7 @@ const WikiNavTree = () => {
     if (pages.length === 0) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
     
     return pages.reduce((bounds, page) => ({
-      minX: Math.min(bounds.minX, page.x - 50),  // Add padding for nodes
+      minX: Math.min(bounds.minX, page.x - 50),
       maxX: Math.max(bounds.maxX, page.x + 50),
       minY: Math.min(bounds.minY, page.y - 50),
       maxY: Math.max(bounds.maxY, page.y + 50)
@@ -225,12 +244,12 @@ const WikiNavTree = () => {
     });
   };
 
-  // Function to fit graph to view
+  // Handle fitting graph to view
   const handleFitGraph = () => {
     if (svgRef.current && pages.length > 0) {
       const svg = svgRef.current;
       const bounds = getGraphBoundaries();
-      const padding = 50;  // Padding from edges
+      const padding = 50;
       
       const svgWidth = svg.clientWidth - (padding * 2);
       const svgHeight = svg.clientHeight - (padding * 2);
@@ -240,7 +259,7 @@ const WikiNavTree = () => {
       const scale = Math.min(
         svgWidth / graphWidth,
         svgHeight / graphHeight,
-        1.5  // Maximum zoom out
+        1.5
       );
       
       setZoom(scale);
@@ -251,19 +270,18 @@ const WikiNavTree = () => {
     }
   };
 
-  // Function to center graph
+  // Handle centering graph
   const handleCenterGraph = () => {
     if (pages.length > 0) {
-      const rootNode = pages[0];
       setPan({
-        x: 50,  // Position root node at left edge with small padding
-        y: 50   // Position at top with small padding
+        x: 50,
+        y: 50
       });
       setZoom(1);
     }
   };
 
-  // Add global mouse handlers
+  // Mouse handlers
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       setIsDragging(false);
@@ -303,7 +321,7 @@ const WikiNavTree = () => {
   };
 
   const handleMouseDown = (e) => {
-    if (e.button === 0) { // Left click only
+    if (e.button === 0) {
       setIsDragging(true);
       setDragStart({ 
         x: e.clientX - pan.x, 
@@ -342,7 +360,7 @@ const WikiNavTree = () => {
     }
   }, [activePage]);
 
-  // Function to search Wikipedia
+  // Wikipedia search function
   const searchWikipedia = async (query) => {
     try {
       const response = await fetch(
@@ -364,7 +382,7 @@ const WikiNavTree = () => {
     }
   };
 
-  // Function to fetch Wikipedia content
+  // Fetch Wikipedia content
   const fetchWikiContent = async (title) => {
     try {
       setLoading(true);
@@ -389,6 +407,46 @@ const WikiNavTree = () => {
     }
   };
 
+  // Fetch Wikipedia thumbnail
+  const fetchWikiThumbnail = async (title) => {
+    try {
+      const response = await fetch(
+        `https://en.wikipedia.org/w/api.php?` +
+        `action=query&` +
+        `titles=${encodeURIComponent(title)}&` +
+        `prop=pageimages&` +
+        `format=json&` +
+        `origin=*&` +
+        `pithumbsize=100`
+      );
+      const data = await response.json();
+      const page = Object.values(data.query.pages)[0];
+      return page.thumbnail?.source || null;
+    } catch (error) {
+      console.error('Error fetching thumbnail:', error);
+      return null;
+    }
+  };
+
+  // Export tree function
+  const exportTree = () => {
+    const svgElement = svgRef.current;
+    if (!svgElement) return;
+
+    const svgCopy = svgElement.cloneNode(true);
+    const svgData = new XMLSerializer().serializeToString(svgCopy);
+    const blob = new Blob([svgData], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'wikitree.svg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // Handle input changes
   const handleInputChange = async (e) => {
     const value = e.target.value;
@@ -402,7 +460,7 @@ const WikiNavTree = () => {
     }
   };
 
-  // Extract page title from Wikipedia URL
+  // Extract page title from URL
   const extractPageTitle = (url) => {
     try {
       const urlObj = new URL(url);
@@ -426,7 +484,6 @@ const WikiNavTree = () => {
       const href = e.target.getAttribute('href');
       if (href && href.startsWith('/wiki/')) {
         const title = href.replace('/wiki/', '');
-        // Don't navigate to File: or Category: pages
         if (!title.startsWith('File:') && !title.startsWith('Category:')) {
           const url = `https://en.wikipedia.org${href}`;
           await loadNewPage({ title, url });
@@ -437,13 +494,11 @@ const WikiNavTree = () => {
 
   // Calculate node position
   const calculateNodePosition = (parentX, parentY, index, siblingCount) => {
-    const levelSpacing = 120;  // Vertical space between levels
-    const nodeSpacing = 100;   // Horizontal space between siblings
+    const levelSpacing = 120;
+    const nodeSpacing = 100;
     const totalWidth = (siblingCount - 1) * nodeSpacing;
     
-    // Calculate x position spreading siblings evenly
     const x = parentX - totalWidth/2 + (index * nodeSpacing);
-    // Y position is fixed distance below parent
     const y = parentY + levelSpacing;
     
     return { x, y };
@@ -452,19 +507,17 @@ const WikiNavTree = () => {
   // Load new page
   const loadNewPage = async (pageInfo) => {
     const content = await fetchWikiContent(pageInfo.title);
+    const thumbnail = await fetchWikiThumbnail(pageInfo.title);
+    
     if (content) {
-      // Check page type
       const pageType = await checkPageType(pageInfo.title);
       const shouldAddToTree = pageType !== 'disambiguation' && pageType !== 'image';
       
-      // Check if this page already exists in the tree
       const existingPage = pages.find(p => 
         p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
       );
 
       if (existingPage) {
-        // If we're coming from a different page and it's not a special page type,
-        // add the new connection
         if (activePage && activePage.id !== existingPage.id && 
             !activePage.children.includes(existingPage.id) && shouldAddToTree) {
           setPages(prevPages => {
@@ -476,14 +529,12 @@ const WikiNavTree = () => {
             return updatedPages;
           });
         }
-        // Switch to the existing page regardless of type
         setActivePage(existingPage);
         setWikiContent(existingPage.content);
       } else {
-        // For initial load or regular articles, add to the tree
         if (pageInfo.isInitialLoad || shouldAddToTree) {
           const position = pages.length === 0 
-            ? { x: 50, y: 50 }  // Start root node on left side
+            ? { x: 50, y: 50 }
             : calculateNodePosition(
                 activePage.x, 
                 activePage.y, 
@@ -496,6 +547,7 @@ const WikiNavTree = () => {
             title: pageInfo.title.replace(/_/g, ' '),
             url: pageInfo.url,
             content,
+            thumbnail,
             x: position.x,
             y: position.y,
             children: []
@@ -514,7 +566,6 @@ const WikiNavTree = () => {
           setActivePage(newPage);
           setWikiContent(content);
         } else {
-          // For disambiguation/image pages, just show the content without adding to tree
           setWikiContent(content);
         }
       }
@@ -524,18 +575,13 @@ const WikiNavTree = () => {
   // Handle search input submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Clear search results
     setSearchResults([]);
     
-    // Check if input is a URL
     const pageInfo = extractPageTitle(searchInput);
     
     if (pageInfo) {
-      // Handle URL directly
       await loadNewPage(pageInfo);
     } else {
-      // Load the search term directly instead of auto-selecting first result
       const searchTitle = searchInput.replace(/\s+/g, '_');
       await loadNewPage({
         title: searchTitle,
@@ -565,125 +611,148 @@ const WikiNavTree = () => {
   };
 
   return (
-    <div ref={containerRef} className="flex h-screen bg-gray-50">
+    <div ref={containerRef} className="flex flex-col h-screen bg-gray-50">
       <style>{styles}</style>
-      {/* Navigation Graph */}
-      <div 
-        className="h-full border-r bg-gradient-to-br from-white to-blue-50"
-        style={{ width: `${leftPaneWidth}px` }}
-      >
-        <div className="h-full flex flex-col">
-          <h2 className="text-xl font-bold p-4 bg-white border-b shadow-sm">
-            WIKINAV
-          </h2>
-          <div className="flex-1 overflow-hidden">
-            <svg
-              ref={svgRef}
-              width="100%"
-              height="100%"
-              onWheel={handleWheel}
-              onMouseDown={handleMouseDown}
-              style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-              className="transition-all duration-200"
+      <div className="flex flex-1 min-h-0">
+        {/* Navigation Graph */}
+        <div 
+          className="h-full border-r bg-gradient-to-br from-white to-blue-50"
+          style={{ width: `${leftPaneWidth}px` }}
+        >
+          <div className="h-full flex flex-col">
+            <div className="p-4 bg-white border-b shadow-sm flex justify-between items-center">
+              <h2 className="text-xl font-bold">WIKINAV</h2>
+              <button
+                onClick={exportTree}
+                className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
+                title="Export Tree"
+              >
+                <Download size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <svg
+                ref={svgRef}
+                width="100%"
+                height="100%"
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                className="transition-all duration-200"
+              >
+                <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+                  {renderEdges()}
+                  {pages.map(page => (
+                    <Node
+                      key={page.id}
+                      x={page.x}
+                      y={page.y}
+                      title={page.title}
+                      thumbnail={page.thumbnail}
+                      isActive={activePage && page.id === activePage.id}
+                      onClick={() => handleNodeClick(page)}
+                    />
+                  ))}
+                </g>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* Resizer */}
+        <Resizer onMouseDown={handleResizeStart} />
+
+        {/* Content Area */}
+        <div className="flex-1 flex flex-col p-4 min-w-[400px] bg-white">
+          {/* Search/URL Input moved to top */}
+          <form onSubmit={handleSubmit} className="mb-4">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchInput}
+                onChange={handleInputChange}
+                placeholder="Enter Wikipedia URL or search term..."
+                className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
+              />
+              {searchResults.length > 0 && (
+                <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+                  {searchResults.map((result, index) => (
+                    <div
+                      key={index}
+                      className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
+                      onClick={async () => {
+                        await loadNewPage({
+                          title: result.title,
+                          url: result.url
+                        });
+                        setSearchInput('');
+                        setSearchResults([]);
+                      }}
+                    >
+                      <div className="font-medium text-gray-900">{result.title}</div>
+                      <div className="text-sm text-gray-600 mt-1">{result.description}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </form>
+
+          {/* Navigation Controls */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={handleBack}
+              disabled={historyIndex <= 0}
+              className={`px-4 py-2 rounded-lg shadow transition-all duration-200 ${
+                historyIndex <= 0 
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+                  : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+              }`}
             >
-              <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                {renderEdges()}
-                {pages.map(page => (
-                  <Node
-                    key={page.id}
-                    x={page.x}
-                    y={page.y}
-                    title={page.title}
-                    isActive={activePage && page.id === activePage.id}
-                    onClick={() => handleNodeClick(page)}
-                  />
-                ))}
-              </g>
-            </svg>
+              Back
+            </button>
+            <button
+              onClick={handleCenterGraph}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 active:bg-blue-700 transition-all duration-200"
+            >
+              Center Graph
+            </button>
+            <button
+              onClick={handleFitGraph}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 active:bg-blue-700 transition-all duration-200"
+            >
+              Fit Graph
+            </button>
+          </div>
+
+          {/* Content Viewer */}
+          <div className="flex-1 border rounded-lg shadow-sm p-4 overflow-auto bg-white">
+            {loading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-xl text-gray-600 animate-pulse">Loading...</div>
+              </div>
+            ) : (
+              <div 
+                onClick={handleWikiLinkClick}
+                dangerouslySetInnerHTML={{ __html: wikiContent }}
+                className="wiki-content prose max-w-none"
+              />
+            )}
           </div>
         </div>
       </div>
 
-      {/* Resizer */}
-      <Resizer onMouseDown={handleResizeStart} />
-
-      {/* Content Area */}
-      <div className="flex-1 flex flex-col p-4 min-w-[400px] bg-white">
-        {/* Navigation Controls */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={handleBack}
-            disabled={historyIndex <= 0}
-            className={`px-4 py-2 rounded-lg shadow transition-all duration-200 ${
-              historyIndex <= 0 
-                ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-                : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
-            }`}
-          >
-            Back
-          </button>
-          <button
-            onClick={handleCenterGraph}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 active:bg-blue-700 transition-all duration-200"
-          >
-            Center Graph
-          </button>
-          <button
-            onClick={handleFitGraph}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 active:bg-blue-700 transition-all duration-200"
-          >
-            Fit Graph
-          </button>
-        </div>
-
-        {/* Search/URL Input */}
-        <form onSubmit={handleSubmit} className="mb-4">
-          <div className="relative">
-            <input
-              type="text"
-              value={searchInput}
-              onChange={handleInputChange}
-              placeholder="Enter Wikipedia URL or search term..."
-              className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
-            />
-            {searchResults.length > 0 && (
-              <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
-                {searchResults.map((result, index) => (
-                  <div
-                    key={index}
-                    className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
-                    onClick={async () => {
-                      await loadNewPage({
-                        title: result.title,
-                        url: result.url
-                      });
-                      setSearchInput('');
-                      setSearchResults([]);
-                    }}
-                  >
-                    <div className="font-medium text-gray-900">{result.title}</div>
-                    <div className="text-sm text-gray-600 mt-1">{result.description}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </form>
-
-        {/* Content Viewer */}
-        <div className="flex-1 border rounded-lg shadow-sm p-4 overflow-auto bg-white">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-xl text-gray-600 animate-pulse">Loading...</div>
-            </div>
-          ) : (
-            <div 
-              onClick={handleWikiLinkClick}
-              dangerouslySetInnerHTML={{ __html: wikiContent }}
-              className="wiki-content prose max-w-none"
-            />
-          )}
-        </div>
+      {/* More subtle GitHub Banner */}
+      <div className="w-full bg-white border-t py-1 px-4 flex justify-center items-center">
+        <a
+          href="https://github.com/whosawme/wikinav"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
+          title="View on GitHub"
+        >
+          <Github size={20} />
+        </a>
       </div>
     </div>
   );

@@ -1,14 +1,17 @@
-import WikiNavTree from './components/WikiNavTree'
+import React from 'react';
+import WikiNavTree from './components/WikiNavTree';
+
 
 function App() {
+  console.log('WikiNavTree component:', WikiNavTree);  // Add this line to debug
   return (
     <div>
       <WikiNavTree />
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
 
 // import { useState } from 'react'
 // import reactLogo from './assets/react.svg'
