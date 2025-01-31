@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Github, Download } from 'lucide-react';
+import { Github, Download, Maximize2 } from 'lucide-react';
 
 // Style customization for Wikipedia content
 const styles = `
@@ -203,6 +203,8 @@ const WikiNavTree = () => {
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef(null);
   const svgRef = useRef(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const animationFrameRef = useRef();
 
   // Navigation history
   const [navigationHistory, setNavigationHistory] = useState([]);
@@ -651,11 +653,110 @@ const WikiNavTree = () => {
     );
   };
 
+   // Force-directed layout function
+   const applyForceDirectedLayout = () => {
+    setIsAnimating(true);
+    
+    const REPULSION = 200; // Base repulsion force
+    const ATTRACTION = 0.2; // Spring force for connected nodes
+    const DAMPING = 0.9; // Velocity damping
+    const MIN_MOVEMENT = 0.1; // Threshold to stop animation
+    
+    let velocities = pages.map(() => ({ x: 0, y: 0 }));
+    
+    const animate = () => {
+      let maxMovement = 0;
+      
+      // Calculate all forces
+      const forces = pages.map((page, i) => {
+        let fx = 0;
+        let fy = 0;
+        
+        // Repulsion between all nodes
+        pages.forEach((otherPage, j) => {
+          if (i !== j) {
+            const dx = page.x - otherPage.x;
+            const dy = page.y - otherPage.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < 0.1) {
+              // Prevent division by zero
+              fx += Math.random() * 2 - 1;
+              fy += Math.random() * 2 - 1;
+            } else {
+              // Repulsion force is inversely proportional to distance
+              const force = REPULSION / (distance * distance);
+              fx += (dx / distance) * force;
+              fy += (dy / distance) * force;
+            }
+          }
+        });
+        
+        // Attraction force for connected nodes
+        page.children.forEach(childId => {
+          const child = pages.find(p => p.id === childId);
+          if (child) {
+            const dx = child.x - page.x;
+            const dy = child.y - page.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            fx -= dx * ATTRACTION;
+            fy -= dy * ATTRACTION;
+          }
+        });
+        
+        return { fx, fy };
+      });
+      
+      // Update velocities and positions
+      setPages(prevPages => {
+        return prevPages.map((page, i) => {
+          // Update velocity with force and damping
+          velocities[i].x = (velocities[i].x + forces[i].fx) * DAMPING;
+          velocities[i].y = (velocities[i].y + forces[i].fy) * DAMPING;
+          
+          // Update position
+          const newX = page.x + velocities[i].x;
+          const newY = page.y + velocities[i].y;
+          
+          // Track maximum movement
+          const movement = Math.sqrt(
+            velocities[i].x * velocities[i].x + 
+            velocities[i].y * velocities[i].y
+          );
+          maxMovement = Math.max(maxMovement, movement);
+          
+          return {
+            ...page,
+            x: newX,
+            y: newY
+          };
+        });
+      });
+      
+      // Continue animation if there's still significant movement
+      if (maxMovement > MIN_MOVEMENT) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        setIsAnimating(false);
+      }
+    };
+    
+    animate();
+  };
+  
+  // Cleanup animation frame on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div ref={containerRef} className="flex flex-col h-screen bg-gray-50">
       <style>{styles}</style>
       <div className="flex flex-1 min-h-0">
-        {/* Navigation Graph */}
         <div 
           className="h-full border-r bg-gradient-to-br from-white to-blue-50"
           style={{ width: `${leftPaneWidth}px` }}
@@ -663,13 +764,25 @@ const WikiNavTree = () => {
           <div className="h-full flex flex-col">
             <div className="p-4 bg-white border-b shadow-sm flex justify-between items-center">
               <h2 className="text-xl font-bold">WIKINAV</h2>
-              <button
-                onClick={exportTree}
-                className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
-                title="Export Tree"
-              >
-                <Download size={20} />
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => !isAnimating && applyForceDirectedLayout()}
+                  className={`p-2 text-gray-600 hover:text-gray-800 transition-colors ${
+                    isAnimating ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                  title="Splay Nodes"
+                  disabled={isAnimating}
+                >
+                  <Maximize2 size={20} />
+                </button>
+                <button
+                  onClick={exportTree}
+                  className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  title="Export Tree"
+                >
+                  <Download size={20} />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               <svg
