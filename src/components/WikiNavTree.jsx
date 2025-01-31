@@ -9,7 +9,7 @@ const styles = `
   .wiki-content a {
     color: #2563eb;
     text-decoration: none;
-    transition: all 0.2s;
+    transition: all 0.2s; 
   }
   .wiki-content a:hover {
     color: #1d4ed8;
@@ -58,49 +58,90 @@ const styles = `
 `;
 
 // Node component with thumbnail
-const Node = ({ x, y, title, thumbnail, isActive, onClick }) => (
-  <g 
-    transform={`translate(${x},${y})`} 
-    onClick={onClick} 
-    style={{ cursor: 'pointer' }}
-    className="transition-transform duration-200 ease-in-out"
-  >
-    {/* Larger circle with clipping path for thumbnail */}
-    <defs>
-      <clipPath id={`circle-clip-${title}`}>
-        <circle r="30" cx="0" cy="0" />
-      </clipPath>
-    </defs>
+const Node = ({ x, y, title, thumbnail, isActive, onClick }) => {
+    // Create a unique ID for this node's elements
+    const uniqueId = `node-${x}-${y}-${title.replace(/\s+/g, '-')}`;
     
-    <circle 
-      r="30" 
-      fill={isActive ? '#3B82F6' : '#fff'} 
-      stroke={isActive ? '#1E40AF' : '#000'}
-      strokeWidth="2"
-      className="transition-all duration-200 ease-in-out shadow-lg"
-    />
-    
-    {thumbnail && (
-      <image
-        x="-30"
-        y="-30"
-        width="60"
-        height="60"
-        href={thumbnail}
-        clipPath={`url(#circle-clip-${title})`}
-        preserveAspectRatio="xMidYMid slice"
-      />
-    )}
-    
-    <text 
-      textAnchor="middle" 
-      dy="50"
-      className={`text-sm ${isActive ? 'font-bold fill-blue-600' : 'fill-gray-700'} transition-all duration-200`}
-    >
-      <tspan x="0" dy="0">{title.length > 20 ? title.slice(0, 20) + '...' : title}</tspan>
-    </text>
-  </g>
-);
+    // Function to wrap text
+    const wrapText = (text, maxWidth = 15) => {
+      const words = text.split(' ');
+      const lines = [];
+      let currentLine = words[0];
+  
+      for (let i = 1; i < words.length; i++) {
+        if (currentLine.length + words[i].length + 1 <= maxWidth) {
+          currentLine += ' ' + words[i];
+        } else {
+          lines.push(currentLine);
+          currentLine = words[i];
+        }
+      }
+      lines.push(currentLine);
+      return lines;
+    };
+  
+    const wrappedText = wrapText(title);
+  
+    return (
+      <g 
+        transform={`translate(${x},${y})`} 
+        onClick={onClick} 
+        style={{ cursor: 'pointer' }}
+        className="transition-transform duration-200 ease-in-out"
+      >
+        {/* Define clipping paths and masks */}
+        <defs>
+          <clipPath id={`circle-clip-${uniqueId}`}>
+            <circle r="30" cx="0" cy="0" />
+          </clipPath>
+          {thumbnail && (
+            <pattern
+              id={`image-pattern-${uniqueId}`}
+              patternUnits="userSpaceOnUse"
+              width="60"
+              height="60"
+              x="-30"
+              y="-30"
+            >
+              <image
+                href={thumbnail}
+                width="60"
+                height="60"
+                preserveAspectRatio="xMidYMid slice"
+              />
+            </pattern>
+          )}
+        </defs>
+        
+        {/* Background circle with clipped thumbnail */}
+        <circle 
+          r="30" 
+          fill={thumbnail ? `url(#image-pattern-${uniqueId})` : (isActive ? '#3B82F6' : '#fff')}
+          stroke={isActive ? '#1E40AF' : '#000'}
+          strokeWidth="2"
+          clipPath={`url(#circle-clip-${uniqueId})`}
+          className="transition-all duration-200 ease-in-out shadow-lg"
+        />
+        
+        {/* Wrapped text */}
+        <text 
+          textAnchor="middle" 
+          className={`text-sm ${isActive ? 'font-bold fill-blue-600' : 'fill-gray-700'} transition-all duration-200`}
+        >
+          {wrappedText.map((line, index) => (
+            <tspan
+              key={index}
+              x="0"
+              dy={index === 0 ? 50 : 16}
+              className="text-sm"
+            >
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </g>
+    );
+  };
 
 // Edge component
 const Edge = ({ startX, startY, endX, endY }) => (
