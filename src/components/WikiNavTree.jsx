@@ -200,11 +200,15 @@ const WikiNavTree = () => {
 
   // Update history when active page changes
   useEffect(() => {
-    if (activePage && (navigationHistory[historyIndex]?.id !== activePage.id)) {
-      setNavigationHistory(prev => [...prev.slice(0, historyIndex + 1), activePage]);
-      setHistoryIndex(prev => prev + 1);
+    if (activePage) {
+      // Don't add to history if it's the same as current page
+      if (navigationHistory[historyIndex]?.id !== activePage.id) {
+        console.log('Adding to history:', activePage.title);
+        setNavigationHistory(prev => [...prev.slice(0, historyIndex + 1), activePage]);
+        setHistoryIndex(prev => prev + 1);
+      }
     }
-  }, [activePage, navigationHistory, historyIndex]);
+  }, [activePage]); // Remove navigationHistory and historyIndex from dependencies
 
   // Helper Functions
   const checkPageType = async (title) => {
@@ -344,10 +348,11 @@ const WikiNavTree = () => {
 
   const handleBack = () => {
     if (historyIndex > 0) {
+      console.log('Going back from index:', historyIndex);
       const previousPage = navigationHistory[historyIndex - 1];
       setActivePage(previousPage);
       setWikiContent(previousPage.content);
-      setHistoryIndex(prev => prev - 1);
+      setHistoryIndex(historyIndex - 1); // Use direct value instead of callback
     }
   };
 
@@ -430,6 +435,7 @@ const WikiNavTree = () => {
 
   // Page Loading and Management
   const loadNewPage = async (pageInfo) => {
+    console.log('Loading new page:', pageInfo.title);
     const content = await fetchWikiContent(pageInfo.title);
     if (content) {
       const pageType = await checkPageType(pageInfo.title);
@@ -599,7 +605,7 @@ return (
       >
         <div className="h-full flex flex-col">
           <h2 className="text-xl font-bold p-4 bg-white border-b shadow-sm">
-            Navigation History
+            WIKINAV
           </h2>
           <div className="flex-1 overflow-hidden">
             <svg
