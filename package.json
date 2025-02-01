@@ -8,9 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "concurrently \"yarn client\" \"yarn server\"", //added for wiki2vec testing
-    "client": "cd client && yarn start", //added for wiki2vec testing
-    "server": "cd server && flask run" //added for wiki2vec testing
+    "start": "concurrently \"yarn client\" \"yarn server\"",
+    "client": "cd client && yarn start", 
+    "server": "cd server && flask run" 
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.16",
@@ -37,6 +37,6 @@
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
     "vite": "^6.0.5",
-    "concurrently": "^4.1.0" //added for wiki2vec testing
+    "concurrently": "^4.1.0" 
   }  
 }
