@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "concurrently \"yarn client\" \"yarn server\"", //added for wiki2vec testing
+    "client": "cd client && yarn start", //added for wiki2vec testing
+    "server": "cd server && flask run" //added for wiki2vec testing
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.16",
@@ -33,6 +36,7 @@
     "globals": "^15.14.0",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
-    "vite": "^6.0.5"
-  }
+    "vite": "^6.0.5",
+    "concurrently": "^4.1.0" //added for wiki2vec testing
+  }  
 }

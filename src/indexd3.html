@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Wikipedia Navigation Tool</title>
+    <!-- Import D3 version 6 -->
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 0;
+        overflow: hidden;
+      }
+      #reset {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 10;
+        padding: 6px 12px;
+        background-color: #0078d7;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #reset:hover {
+        background-color: #005ea6;
+      }
+      svg {
+        width: 100vw;
+        height: 100vh;
+      }
+      .node {
+        stroke: #fff;
+        stroke-width: 1.5px;
+      }
+      .link {
+        stroke: #999;
+        stroke-opacity: 0.6;
+      }
+      text {
+        pointer-events: none;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Reset button -->
+    <button id="reset">Reset</button>
+    <svg></svg>
+
+    <script>
+      // Set dimensions based on viewport
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const svg = d3.select("svg");
+
+      // Create the simulation with improved forces:
+      // - forceLink: manages the links with a fixed distance
+      // - forceManyBody: repulsion between nodes
+      // - forceCenter: centers the graph in the SVG
+      // - forceCollide: avoids node overlap
+      const simulation = d3
+        .forceSimulation()
+        .force("link", d3.forceLink().id(d => d.id).distance(150))
+        .force("charge", d3.forceManyBody().strength(-300))
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("collision", d3.forceCollide().radius(40));
+
+      // Function to update/render the graph based on the data provided
+      function updateGraph(graph) {
+        // Clear any existing content
+        svg.selectAll("*").remove();
+
+        // Create links (lines)
+        const link = svg
+          .append("g")
+          .attr("class", "links")
+          .selectAll("line")
+          .data(graph.links)
+          .enter()
+          .append("line")
+          .attr("class", "link")
+          .attr("stroke-width", 2);
+
+        // Create nodes (circles)
+        const node = svg
+          .append("g")
+          .attr("class", "nodes")
+          .selectAll("g")
+          .data(graph.nodes)
+          .enter()
+          .append("g")
+          .call(d3.drag()
+            .on("start", dragStarted)
+            .on("drag", dragged)
+            .on("end", dragEnded)
+          );
+
+        // Append circles for each node
+        node
+          .append("circle")
+          .attr("class", "node")
+          .attr("r", 20)
+          .attr("fill", "#69b3a2");
+
+        // Append labels to each node
+        node
+          .append("text")
+          .attr("dy", 4)
+          .attr("x", 25)
+          .text(d => d.id);
+
+        // Update the simulation with our nodes and links
+        simulation.nodes(graph.nodes).on("tick", ticked);
+        simulation.force("link").links(graph.links);
+        simulation.alpha(1).restart();
+
+        // Function to update positions on each tick of the simulation
+        function ticked() {
+          link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+          node.attr("transform", d => `translate(${d.x}, ${d.y})`);
+        }
+      }
+
+      // Drag event handlers for nodes
+      function dragStarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+
+      function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+      }
+
+      function dragEnded(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
+
+      // Reset button functionality:
+      // Stop the simulation, clear the SVG, and redirect to Wikipedia homepage.
+      document.getElementById("reset").addEventListener("click", () => {
+        simulation.stop();
+        svg.selectAll("*").remove();
+        window.location.href = "https://www.wikipedia.org";
+      });
+
+      // Example graph data (this could be dynamically built from Wikipedia navigation)
+      const graphData = {
+        nodes: [
+          { id: "Wikipedia" },
+          { id: "Article1" },
+          { id: "Article2" },
+          { id: "Article3" }
+        ],
+        links: [
+          { source: "Wikipedia", target: "Article1" },
+          { source: "Wikipedia", target: "Article2" },
+          { source: "Article2", target: "Article3" }
+        ]
+      };
+
+      // Initialize the graph
+      updateGraph(graphData);
+    </script>
+  </body>
+</html>

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Github, Download, Maximize2 } from 'lucide-react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import * as d3 from 'd3';
+import { Github, Download, Maximize2, Minimize2, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 
-// Style customization for Wikipedia content
+// Style customization for Wikipedia content and overall UI
 const styles = `
   .wiki-content {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -56,10 +56,24 @@ const styles = `
     margin: 1em 0;
     color: #4b5563;
   }
+  .toolbar-button {
+    padding: 8px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+  }
+  .toolbar-button:hover {
+    background-color: #f0f0f0;
+  }
+  .toolbar-button.active {
+    color: #3B82F6;
+  }
 `;
 
-// Node component with thumbnail guarantee 
-const Node = ({ x, y, title, thumbnail, isActive, onClick }) => {
+// Node component – accepts an optional "suggested" prop for related suggestions.
+const Node = ({ x, y, title, thumbnail, isActive, suggested, onClick }) => {
   const safeId = `circle-clip-${title.replace(/[^a-zA-Z0-9]/g, '-')}`;
   return (
     <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
@@ -70,9 +84,10 @@ const Node = ({ x, y, title, thumbnail, isActive, onClick }) => {
       </defs>
       <circle 
         r="30" 
-        fill={isActive ? '#3B82F6' : '#fff'} 
-        stroke={isActive ? '#1E40AF' : '#000'}
+        fill={ suggested ? '#e0e0e0' : (isActive ? '#3B82F6' : '#fff') } 
+        stroke={ suggested ? '#aaa' : (isActive ? '#1E40AF' : '#000') }
         strokeWidth="2"
+        style={ suggested ? { opacity: 0.6 } : {} }
         className="transition-all duration-200 ease-in-out shadow-lg"
       />
       {thumbnail && (
@@ -90,7 +105,8 @@ const Node = ({ x, y, title, thumbnail, isActive, onClick }) => {
       <text 
         textAnchor="middle" 
         dy="50"
-        className={`text-sm ${isActive ? 'font-bold fill-blue-600' : 'fill-gray-700'} transition-all duration-200`}
+        style={ suggested ? { opacity: 0.6, fill: '#555', fontSize: '10px' } : {} }
+        className={`text-sm ${isActive ? 'font-bold text-blue-600' : 'text-gray-700'} transition-all duration-200`}
       >
         {title.split(' ').reduce((lines, word) => {
           const lastLine = lines[lines.length - 1];
@@ -110,8 +126,8 @@ const Node = ({ x, y, title, thumbnail, isActive, onClick }) => {
   );
 };
 
-// Edge component
-const Edge = ({ startX, startY, endX, endY }) => (
+// Edge component – accepts an optional "suggested" prop.
+const Edge = ({ startX, startY, endX, endY, suggested }) => (
   <g>
     <defs>
       <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -123,18 +139,31 @@ const Edge = ({ startX, startY, endX, endY }) => (
       y1={startY} 
       x2={endX} 
       y2={endY} 
-      stroke="#4B5563" 
+      stroke={suggested ? "#aaa" : "#4B5563"} 
       strokeWidth="2"
       markerEnd="url(#arrowhead)"
+      style={suggested ? { strokeOpacity: 0.5 } : {}}
       className="transition-all duration-200"
     />
   </g>
 );
 
-// Resizer component
+// Resizer component.
 const Resizer = ({ onMouseDown }) => (
   <div className="w-2 cursor-col-resize bg-gray-200 hover:bg-gray-300 active:bg-gray-400" onMouseDown={onMouseDown} />
 );
+
+// Dummy function that simulates a Wikipedia2Vec-based API call.
+// Replace this with a real API endpoint that returns related pages based on cosine similarity.
+const getRelatedLinks = async (title) => {
+  // Simulate a delay.
+  await new Promise(resolve => setTimeout(resolve, 500));
+  return [
+    { title: `${title} (Related 1)`, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}_Related_1` },
+    { title: `${title} (Related 2)`, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}_Related_2` },
+    { title: `${title} (Related 3)`, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}_Related_3` }
+  ];
+};
 
 const WikiNavTree = () => {
   useEffect(() => { document.title = 'WikiNav'; }, []);
@@ -154,26 +183,36 @@ const WikiNavTree = () => {
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const [isAnimating, setIsAnimating] = useState(false);
-  const animationFrameRef = useRef();
   const [navigationHistory, setNavigationHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
-  useEffect(() => {
-    const fetchHomePage = async () => {
-      try {
-        const response = await fetch(
-          `https://en.wikipedia.org/w/api.php?action=parse&page=Main_Page&format=json&origin=*&prop=text`
-        );
-        const data = await response.json();
-        if (data.parse && data.parse.text) {
-          setWikiContent(data.parse.text['*']);
-        }
-      } catch (error) {
-        console.error('Error loading homepage:', error);
-      } finally {
-        setLoading(false);
+  // State for the force-layout toggle.
+  const [isSplayed, setIsSplayed] = useState(false);
+  const preSplayPositionsRef = useRef(null);
+
+  // State for related page suggestions (Wikipedia2Vec-based).
+  const [showSeeAlso, setShowSeeAlso] = useState(false);
+  const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
+
+  // Fetch Wikipedia homepage content.
+  const fetchHomePage = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=parse&page=Main_Page&format=json&origin=*&prop=text`
+      );
+      const data = await response.json();
+      if (data.parse && data.parse.text) {
+        setWikiContent(data.parse.text['*']);
       }
-    };
+    } catch (error) {
+      console.error('Error loading homepage:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchHomePage();
   }, []);
 
@@ -213,15 +252,15 @@ const WikiNavTree = () => {
       const svg = svgRef.current;
       const bounds = getGraphBoundaries();
       const padding = 50;
-      const svgWidth = svg.clientWidth - (padding * 2);
-      const svgHeight = svg.clientHeight - (padding * 2);
+      const svgWidth = svg.clientWidth - padding * 2;
+      const svgHeight = svg.clientHeight - padding * 2;
       const graphWidth = bounds.maxX - bounds.minX;
       const graphHeight = bounds.maxY - bounds.minY;
       const scale = Math.min(svgWidth / graphWidth, svgHeight / graphHeight, 1.5);
       setZoom(scale);
       setPan({
-        x: (svgWidth / 2) - ((bounds.minX + graphWidth / 2) * scale) + padding,
-        y: (svgHeight / 2) - ((bounds.minY + graphHeight / 2) * scale) + padding
+        x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
+        y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
       });
     }
   };
@@ -295,7 +334,7 @@ const WikiNavTree = () => {
       setNavigationHistory(prev => [...prev.slice(0, historyIndex + 1), activePage]);
       setHistoryIndex(prev => prev + 1);
     }
-  }, [activePage]);
+  }, [activePage, historyIndex, navigationHistory]);
 
   const searchWikipedia = async (query) => {
     try {
@@ -399,7 +438,7 @@ const WikiNavTree = () => {
     const levelSpacing = 120;
     const nodeSpacing = 100;
     const totalWidth = (siblingCount - 1) * nodeSpacing;
-    return { x: parentX - totalWidth/2 + (index * nodeSpacing), y: parentY + levelSpacing };
+    return { x: parentX - totalWidth / 2 + (index * nodeSpacing), y: parentY + levelSpacing };
   };
 
   const loadNewPage = async (pageInfo) => {
@@ -408,11 +447,16 @@ const WikiNavTree = () => {
     if (content) {
       const pageType = await checkPageType(pageInfo.title);
       const shouldAddToTree = pageType !== 'disambiguation' && pageType !== 'image';
-      const existingPage = pages.find(p => 
+      const existingPage = pages.find(p =>
         p.title.toLowerCase() === pageInfo.title.replace(/_/g, ' ').toLowerCase()
       );
       if (existingPage) {
-        if (activePage && activePage.id !== existingPage.id && !activePage.children.includes(existingPage.id) && shouldAddToTree) {
+        if (
+          activePage &&
+          activePage.id !== existingPage.id &&
+          !activePage.children.includes(existingPage.id) &&
+          shouldAddToTree
+        ) {
           setPages(prevPages => {
             const updatedPages = [...prevPages];
             const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
@@ -426,7 +470,7 @@ const WikiNavTree = () => {
         setWikiContent(existingPage.content);
       } else {
         if (pageInfo.isInitialLoad || shouldAddToTree) {
-          const position = pages.length === 0 
+          const position = pages.length === 0
             ? { x: 50, y: 50 }
             : calculateNodePosition(activePage.x, activePage.y, activePage.children.length, activePage.children.length + 1);
           const newPage = {
@@ -471,8 +515,9 @@ const WikiNavTree = () => {
     setSearchInput('');
   };
 
+  // Render committed page edges.
   const renderEdges = () => {
-    return pages.flatMap(page => 
+    return pages.flatMap(page =>
       page.children.map(childId => {
         const child = pages.find(p => p.id === childId);
         return child ? (
@@ -482,70 +527,126 @@ const WikiNavTree = () => {
     );
   };
 
-  useEffect(() => {
-    if (!isAnimating) {
-      applyForceDirectedLayout();
-    }
-  }, [horizontalSpread]);
-  
-  // Force-Directed Layout remains unchanged and uses the latest horizontalSpread value:
-  const applyForceDirectedLayout = () => {
-    setIsAnimating(true);
-    const REPULSION_FORCE = horizontalSpread * 0.8;
-    const ATTRACTION_FORCE = 0.1;
-    const DAMPING = 0.85;
-    const MIN_MOVEMENT = 0.5;
-    let velocities = pages.map(() => ({ x: 0, y: 0 }));
-  
-    const animate = () => {
-      let maxMovement = 0;
-      const forces = pages.map((node, i) => {
-        let fx = 0, fy = 0;
-        pages.forEach(other => {
-          if (node.id !== other.id) {
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const distance = Math.max(50, Math.sqrt(dx * dx + dy * dy));
-            const force = (REPULSION_FORCE / (distance * distance)) * 5;
-            fx += (dx / distance) * force;
-            fy += (dy / distance) * force;
-          }
-        });
-        const parent = pages.find(p => p.children.includes(node.id));
-        if (parent) {
-          const dx = parent.x - node.x;
-          const dy = (parent.y + 100) - node.y;
-          fx += dx * ATTRACTION_FORCE;
-          fy += dy * ATTRACTION_FORCE * 2;
-        }
-        return { fx, fy };
-      });
-  
-      setPages(prevPages => {
-        return prevPages.map((node, i) => {
-          velocities[i].x = (velocities[i].x + forces[i].fx) * DAMPING;
-          velocities[i].y = (velocities[i].y + forces[i].fy) * DAMPING;
-          const newX = node.x + velocities[i].x;
-          const newY = node.y + velocities[i].y;
-          const movement = Math.sqrt(velocities[i].x ** 2 + velocities[i].y ** 2);
-          maxMovement = Math.max(maxMovement, movement);
-          return { ...node, x: newX, y: newY };
-        });
-      });
-  
-      if (maxMovement > MIN_MOVEMENT) {
-        animationFrameRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsAnimating(false);
-      }
-    };
-  
-    animate();
+  // Render edges for related (see-also) suggestion nodes.
+  const renderSeeAlsoEdges = () => {
+    if (!activePage) return null;
+    return seeAlsoNodes.map(node => (
+      <Edge key={`seeAlso-edge-${node.id}`} startX={activePage.x} startY={activePage.y} endX={node.x} endY={node.y} suggested={true} />
+    ));
   };
 
+  // Render suggestion nodes.
+  const renderSeeAlsoNodes = () => {
+    return seeAlsoNodes.map(node => (
+      <Node 
+        key={node.id} 
+        x={node.x} 
+        y={node.y} 
+        title={node.title} 
+        suggested={true}
+        onClick={() => {
+          loadNewPage({ title: node.title, url: node.url });
+          setSeeAlsoNodes([]);
+        }} 
+      />
+    ));
+  };
 
-// SpreadControls component now only updates horizontalSpread
-const SpreadControls = () => (
+  // Improved Force-Directed Layout using D3.
+  const applyForceDirectedLayout = () => {
+    if (pages.length === 0) return;
+    setIsAnimating(true);
+    const links = [];
+    pages.forEach(page => {
+      page.children.forEach(childId => {
+        const child = pages.find(p => p.id === childId);
+        if (child) {
+          links.push({ source: page.id, target: child.id });
+        }
+      });
+    });
+    const svgEl = svgRef.current;
+    const width = svgEl.clientWidth;
+    const height = svgEl.clientHeight;
+    const simulation = d3.forceSimulation(pages)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(150))
+      .force('charge', d3.forceManyBody().strength(-300))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide(40))
+      .alpha(1)
+      .restart();
+      
+    simulation.on('tick', () => {
+      setPages(simulation.nodes().map(n => ({ ...n })));
+      if (simulation.alpha() < 0.05) {
+        simulation.stop();
+        setIsAnimating(false);
+      }
+    });
+  };
+
+  // Toggle the force layout (splay mode). When enabling, save positions and animate; when disabling, restore saved positions.
+  const handleToggleSplay = () => {
+    if (isAnimating) return;
+    if (!isSplayed) {
+      preSplayPositionsRef.current = pages.map(p => ({ ...p }));
+      applyForceDirectedLayout();
+      setIsSplayed(true);
+    } else {
+      if (preSplayPositionsRef.current) {
+        setPages(preSplayPositionsRef.current);
+      }
+      setIsSplayed(false);
+    }
+  };
+
+  // When the See Also toggle is on, automatically force splay (if not already) and fetch related pages using Wikipedia2Vec.
+  useEffect(() => {
+    if (showSeeAlso && activePage) {
+      if (!isSplayed && !isAnimating) {
+        handleToggleSplay();
+      }
+      const fetchRelated = async () => {
+        const links = await getRelatedLinks(activePage.title);
+        if (links.length === 0) {
+          setSeeAlsoNodes([]);
+          return;
+        }
+        const N = links.length;
+        const radius = 150;
+        const centerX = activePage.x;
+        const centerY = activePage.y;
+        const nodes = links.map((link, i) => {
+          let angle = N === 1 ? -Math.PI / 2 : (-Math.PI / 2) + (i / (N - 1)) * Math.PI;
+          return {
+            id: `seeAlso-${i}-${link.title}`,
+            title: link.title,
+            url: link.url.startsWith("http") ? link.url : `https://en.wikipedia.org${link.url}`,
+            x: centerX + radius * Math.cos(angle),
+            y: centerY + radius * Math.sin(angle),
+            isSuggested: true
+          };
+        });
+        setSeeAlsoNodes(nodes);
+      };
+      fetchRelated();
+    } else {
+      setSeeAlsoNodes([]);
+    }
+  }, [showSeeAlso, activePage]);
+
+  // Reset the tree visualization (clear tree data and navigation history, and reload the homepage).
+  const handleReset = async () => {
+    setPages([]);
+    setActivePage(null);
+    setNavigationHistory([]);
+    setHistoryIndex(-1);
+    setSearchInput('');
+    await fetchHomePage();
+  };
+
+  // SpreadControls component for adjusting horizontalSpread.
+  const SpreadControls = () => (
     <div className="flex">
       <button
         onClick={() => {
@@ -581,15 +682,25 @@ const SpreadControls = () => (
             <div className="p-4 bg-white border-b shadow-sm flex justify-between items-center">
               <h2 className="text-xl font-bold">WIKINAV</h2>
               <div className="flex gap-2">
+                <button onClick={handleReset} className="toolbar-button" title="Reset Tree">
+                  Reset
+                </button>
+                <button 
+                  onClick={() => setShowSeeAlso(prev => !prev)} 
+                  className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
+                  title="Toggle Related Pages"
+                >
+                  <BookOpen size={20} />
+                </button>
                 <button
-                  onClick={() => !isAnimating && applyForceDirectedLayout()}
-                  className={`p-2 text-gray-600 hover:text-gray-800 transition-colors ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title="Splay Nodes"
+                  onClick={handleToggleSplay}
+                  className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title="Splay Tree"
                   disabled={isAnimating}
                 >
-                  <Maximize2 size={20} />
+                  {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
                 </button>
-                <button onClick={exportTree} className="p-2 text-gray-600 hover:text-gray-800 transition-colors" title="Export Tree">
+                <button onClick={exportTree} className="toolbar-button" title="Export Tree">
                   <Download size={20} />
                 </button>
               </div>
@@ -598,9 +709,11 @@ const SpreadControls = () => (
               <svg ref={svgRef} width="100%" height="100%" onWheel={handleWheel} onMouseDown={handleMouseDown} style={{ cursor: isDragging ? 'grabbing' : 'grab' }} className="transition-all duration-200">
                 <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
                   {renderEdges()}
+                  {renderSeeAlsoEdges()}
                   {pages.map(page => (
                     <Node key={page.id} x={page.x} y={page.y} title={page.title} thumbnail={page.thumbnail} isActive={activePage && page.id === activePage.id} onClick={() => handleNodeClick(page)} />
                   ))}
+                  {renderSeeAlsoNodes()}
                 </g>
               </svg>
             </div>
