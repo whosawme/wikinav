@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as d3 from 'd3';
 import { Github, Download, Maximize2 } from 'lucide-react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -158,22 +159,30 @@ const WikiNavTree = () => {
   const [navigationHistory, setNavigationHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
-  useEffect(() => {
-    const fetchHomePage = async () => {
-      try {
-        const response = await fetch(
-          `https://en.wikipedia.org/w/api.php?action=parse&page=Main_Page&format=json&origin=*&prop=text`
-        );
-        const data = await response.json();
-        if (data.parse && data.parse.text) {
-          setWikiContent(data.parse.text['*']);
-        }
-      } catch (error) {
-        console.error('Error loading homepage:', error);
-      } finally {
-        setLoading(false);
+  // New state and ref for splay toggle:
+  const [isSplayed, setIsSplayed] = useState(false);
+  const preSplayPositionsRef = useRef(null);
+
+  // Load the Wikipedia homepage content.
+  const fetchHomePage = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=parse&page=Main_Page&format=json&origin=*&prop=text`
+      );
+      const data = await response.json();
+      if (data.parse && data.parse.text) {
+        setWikiContent(data.parse.text['*']);
       }
-    };
+    } catch (error) {
+      console.error('Error loading homepage:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // On initial mount, load the homepage.
+  useEffect(() => {
     fetchHomePage();
   }, []);
 
@@ -482,70 +491,72 @@ const WikiNavTree = () => {
     );
   };
 
-  useEffect(() => {
-    if (!isAnimating) {
-      applyForceDirectedLayout();
-    }
-  }, [horizontalSpread]);
-  
-  // Force-Directed Layout remains unchanged and uses the latest horizontalSpread value:
+  // Improved Force-Directed Layout using D3 force simulation.
+  // This function updates node positions by reading simulation.nodes() on every tick.
   const applyForceDirectedLayout = () => {
+    if (pages.length === 0) return;
     setIsAnimating(true);
-    const REPULSION_FORCE = horizontalSpread * 0.8;
-    const ATTRACTION_FORCE = 0.1;
-    const DAMPING = 0.85;
-    const MIN_MOVEMENT = 0.5;
-    let velocities = pages.map(() => ({ x: 0, y: 0 }));
-  
-    const animate = () => {
-      let maxMovement = 0;
-      const forces = pages.map((node, i) => {
-        let fx = 0, fy = 0;
-        pages.forEach(other => {
-          if (node.id !== other.id) {
-            const dx = node.x - other.x;
-            const dy = node.y - other.y;
-            const distance = Math.max(50, Math.sqrt(dx * dx + dy * dy));
-            const force = (REPULSION_FORCE / (distance * distance)) * 5;
-            fx += (dx / distance) * force;
-            fy += (dy / distance) * force;
-          }
-        });
-        const parent = pages.find(p => p.children.includes(node.id));
-        if (parent) {
-          const dx = parent.x - node.x;
-          const dy = (parent.y + 100) - node.y;
-          fx += dx * ATTRACTION_FORCE;
-          fy += dy * ATTRACTION_FORCE * 2;
+    const links = [];
+    pages.forEach(page => {
+      page.children.forEach(childId => {
+        const child = pages.find(p => p.id === childId);
+        if (child) {
+          links.push({ source: page.id, target: child.id });
         }
-        return { fx, fy };
       });
-  
-      setPages(prevPages => {
-        return prevPages.map((node, i) => {
-          velocities[i].x = (velocities[i].x + forces[i].fx) * DAMPING;
-          velocities[i].y = (velocities[i].y + forces[i].fy) * DAMPING;
-          const newX = node.x + velocities[i].x;
-          const newY = node.y + velocities[i].y;
-          const movement = Math.sqrt(velocities[i].x ** 2 + velocities[i].y ** 2);
-          maxMovement = Math.max(maxMovement, movement);
-          return { ...node, x: newX, y: newY };
-        });
-      });
-  
-      if (maxMovement > MIN_MOVEMENT) {
-        animationFrameRef.current = requestAnimationFrame(animate);
-      } else {
+    });
+    const svgEl = svgRef.current;
+    const width = svgEl.clientWidth;
+    const height = svgEl.clientHeight;
+    const simulation = d3.forceSimulation(pages)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(150))
+      .force('charge', d3.forceManyBody().strength(-300))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide(40))
+      .alpha(1)
+      .restart();
+      
+    simulation.on('tick', () => {
+      // Update state with the simulation's node positions.
+      setPages(simulation.nodes().map(n => ({ ...n })));
+      // If the simulation has cooled enough, stop it.
+      if (simulation.alpha() < 0.05) {
+        simulation.stop();
         setIsAnimating(false);
       }
-    };
-  
-    animate();
+    });
   };
 
+  // Toggle the splay layout.
+  // When not splayed, save current positions and apply the D3 force simulation.
+  // When already splayed, restore the saved positions.
+  const handleToggleSplay = () => {
+    if (isAnimating) return;
+    if (!isSplayed) {
+      // Save the current (static) node positions.
+      preSplayPositionsRef.current = pages.map(p => ({ ...p }));
+      applyForceDirectedLayout();
+      setIsSplayed(true);
+    } else {
+      if (preSplayPositionsRef.current) {
+        setPages(preSplayPositionsRef.current);
+      }
+      setIsSplayed(false);
+    }
+  };
 
-// SpreadControls component now only updates horizontalSpread
-const SpreadControls = () => (
+  // Reset the tree visualization: clear tree data and reload the homepage content.
+  const handleReset = async () => {
+    setPages([]);
+    setActivePage(null);
+    setNavigationHistory([]);
+    setHistoryIndex(-1);
+    setSearchInput('');
+    await fetchHomePage();
+  };
+
+  // SpreadControls component for adjusting horizontalSpread.
+  const SpreadControls = () => (
     <div className="flex">
       <button
         onClick={() => {
@@ -581,13 +592,16 @@ const SpreadControls = () => (
             <div className="p-4 bg-white border-b shadow-sm flex justify-between items-center">
               <h2 className="text-xl font-bold">WIKINAV</h2>
               <div className="flex gap-2">
+                <button onClick={handleReset} className="p-2 text-gray-600 hover:text-gray-800 transition-colors" title="Reset Tree">
+                  Reset
+                </button>
                 <button
-                  onClick={() => !isAnimating && applyForceDirectedLayout()}
+                  onClick={handleToggleSplay}
                   className={`p-2 text-gray-600 hover:text-gray-800 transition-colors ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title="Splay Nodes"
+                  title={isSplayed ? "Collapse Tree" : "Splay Tree"}
                   disabled={isAnimating}
                 >
-                  <Maximize2 size={20} />
+                  {isSplayed ? "Collapse" : "Splay"} <Maximize2 size={20} />
                 </button>
                 <button onClick={exportTree} className="p-2 text-gray-600 hover:text-gray-800 transition-colors" title="Export Tree">
                   <Download size={20} />
