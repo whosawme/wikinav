@@ -1,4 +1,8 @@
 # WikiNav
+<!-- ![WikiRabbit](src/assets/wikirabbit_transparent.jpg)
+ -->
+ <img src="src/assets/wikirabbit_transparent.jpg" width="200" height="200" alt="Image description">
+ 
 Because going down the rabbit hole isnt linear.
 Tool for navigating Wikipedia and plotting your page visits.  
 Pull the repo locally or test it out at https://wikinav.com 

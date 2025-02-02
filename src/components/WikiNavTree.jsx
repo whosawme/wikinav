@@ -798,14 +798,14 @@ const WikiNavTree = () => {
         <div className="h-full border-r gradient-bg" style={{ width: `${leftPaneWidth}px` }}>
           <div className="h-full flex flex-col">
             <div className="p-4 bg-white/90 border-b backdrop-blur-sm shadow-sm flex justify-between items-center">
-              {/* <h2 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+              <img 
+                src="src/assets/wikirabbit_transparent.jpg" 
+                alt="WikiRabbit" 
+                className="h-24 w-auto toolbar-button"
+              />
+              {/* <h2 className="text-xl font-display bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
                 WIKINAV
               </h2> */}
-              <img 
-                src="/assets/wikirabbit.jpg" 
-                alt="WikiNav" 
-                className="h-8 w-auto"
-              />
               <div className="flex gap-2">
                 <button onClick={handleReset} className="toolbar-button" title="Reset Tree">
                   Reset
