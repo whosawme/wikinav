@@ -799,7 +799,7 @@ const WikiNavTree = () => {
           <div className="h-full flex flex-col">
             <div className="p-4 bg-white/90 border-b backdrop-blur-sm shadow-sm flex justify-between items-center">
               <img 
-                src="../public/wikirabbit_transparent.svg" 
+                src="wikirabbit_transparent.svg" 
                 alt="WikiRabbit" 
                 className="h-24 w-auto toolbar-button"
               />
