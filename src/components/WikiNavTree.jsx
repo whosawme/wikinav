@@ -224,7 +224,7 @@ const TreeControls = ({ onCenter, onFit, horizontalSpread, setHorizontalSpread }
         Fit Graph
       </button>
     </div>
-    <div className="flex space-x-2">
+    {/* <div className="flex space-x-2">
       <button
         onClick={() => {
           const newSpread = Math.max(50, horizontalSpread * 0.7);
@@ -245,7 +245,7 @@ const TreeControls = ({ onCenter, onFit, horizontalSpread, setHorizontalSpread }
         <span>Widen</span>
         <ChevronRight size={16} />
       </button>
-    </div>
+    </div> */}
   </div>
 );
 

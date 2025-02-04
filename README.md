@@ -38,12 +38,12 @@ npm install
 
 In the project directory, you can run:
 
-### `npm start`
+### `npm start dev`
 Runs the app in development mode.
 Open [http://localhost:5173/] to view it in your browser.
 
 ### `npm run build`
-Builds the app for production to the `build` folder.
+Builds the app for production to the `build` or `dist` folder.
 
 ## Features
 
@@ -59,7 +59,7 @@ Builds the app for production to the `build` folder.
 
 ## Usage Tips
 
-1. Search Wikipedia or enter full Wikipedia URL (e.g., `https://en.wikipedia.org/wiki/React_(JavaScript_library)`)
+1. Search Wikipedia or enter full Wikipedia URL (e.g., `https://en.wikipedia.org/wiki/Machine_learning`)
 3. Navigate through pages by:
    - Clicking internal links in the content area, or
    - Clicking nodes in the graph
@@ -68,6 +68,7 @@ Builds the app for production to the `build` folder.
 
 - Built with React
 - Uses SVG for navigation graph rendering (open to other visualization approaches)
+- D3.js for splayed graph mode
 - Utilizes Wikipedia's public API for content fetching
 
 ## Limitations
