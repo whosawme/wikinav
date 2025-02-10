@@ -282,10 +282,14 @@ const WikiNavTree = () => {
   const [showSeeAlso, setShowSeeAlso] = useState(false);
   const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
 
+
   // Refs
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
+
+  // to avoid key collisions
+  const generateUniqueId = () => `page-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   useEffect(() => {
     document.title = 'WikiNav';
@@ -669,7 +673,7 @@ const WikiNavTree = () => {
               );
 
           const newPage = {
-            id: String(pages.length + 1),
+            id: generateUniqueId(),
             title: pageInfo.title.replace(/_/g, ' '),
             url: pageInfo.url,
             content,
@@ -747,19 +751,27 @@ const WikiNavTree = () => {
 
   // Rendering functions
   const renderEdges = () => {
+    const renderedKeys = new Set();
+    
     return pages.flatMap(page =>
       page.children.map(childId => {
         const child = pages.find(p => p.id === childId);
-        return child ? (
+        if (!child) return null;
+        
+        const edgeKey = `edge-${page.id}-to-${childId}`;
+        if (renderedKeys.has(edgeKey)) return null;
+        renderedKeys.add(edgeKey);
+        
+        return (
           <EdgeComponent 
-            key={`${page.id}-${childId}`} 
+            key={edgeKey}
             startX={page.x} 
             startY={page.y} 
             endX={child.x} 
             endY={child.y} 
           />
-        ) : null;
-      })
+        );
+      }).filter(Boolean)
     );
   };
 
@@ -767,7 +779,7 @@ const WikiNavTree = () => {
     if (!activePage) return null;
     return seeAlsoNodes.map(node => (
       <EdgeComponent 
-        key={`seeAlso-edge-${node.id}`} 
+        key={`edge-see-also-${node.id}-to-${activePage.id}`}
         startX={activePage.x} 
         startY={activePage.y} 
         endX={node.x} 
