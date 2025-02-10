@@ -6,6 +6,18 @@ import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, Chev
 const useViewportSize = () => {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
+  
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrollY(window.scrollY);
+    };
+  
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  
+  
   useEffect(() => {
     const handleResize = () => {
       setSize({ width: window.innerWidth, height: window.innerHeight });
@@ -278,6 +290,7 @@ const getRelatedLinks = async (title) => {
 const WikiNavTree = () => {
   // State declarations
   const [isTreePaneCollapsed, setIsTreePaneCollapsed] = useState(false);
+  const [scrollY, setScrollY] = useState(0); //scroll tracking for header
   const viewport = useViewportSize();
   const isMobile = viewport.width < 768;
   const [horizontalSpread, setHorizontalSpread] = useState(300);
@@ -355,8 +368,8 @@ const WikiNavTree = () => {
       onClick={onClick}
       className={`absolute p-2 bg-white shadow-md rounded-full transition-all duration-200 ${
         isMobile 
-          ? `top-1/2 ${isCollapsed ? 'right-0' : 'right-0'} -translate-y-1/2 translate-x-1/2` 
-          : `top-1/2 ${isCollapsed ? 'left-0' : 'left-full'} -translate-y-1/2 -translate-x-1/2`
+          ? 'bottom-0 translate-y-1/2' // Center at bottom of tree pane
+          : `-right-6 top-1/2 -translate-y-1/2` // Center on right border
       }`}
       title={isCollapsed ? "Show Tree" : "Hide Tree"}
     >
@@ -1027,13 +1040,14 @@ const WikiNavTree = () => {
       <style>{styles}</style>
       
       {/* Main content container with mobile adaptation */}
-      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''}`}>
-        {/* Left pane: Graph view */}
-        <div className="relative h-full border-r gradient-bg" 
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
+        {/* Left/Top pane: Graph view */}
+        <div className="relative border-r gradient-bg" 
      style={{ 
        width: isMobile ? '100%' : (isTreePaneCollapsed ? '0' : `${leftPaneWidth}px`),
        height: isMobile ? (isTreePaneCollapsed ? '0' : '50%') : '100%',
-       transition: 'all 0.3s ease-in-out'
+               transition: 'all 0.3s ease-in-out',
+              //  overflow: 'hidden'
      }}>
   <CollapseButton 
     isCollapsed={isTreePaneCollapsed} 
@@ -1059,8 +1073,7 @@ const WikiNavTree = () => {
                 >
                   <NetworkNodesIcon size={20} />
                 </button>
-                <button
-                  onClick={handleToggleSplay}
+              <button onClick={handleToggleSplay}
                   className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
                   title="Splay Tree"
                   disabled={isAnimating}
@@ -1121,8 +1134,8 @@ const WikiNavTree = () => {
         {/* Resizer - only show on desktop */}
         {!isMobile && <Resizer onMouseDown={handleResizeStart} />}
   
-        {/* Right pane: Content view */}
-        <div className={`flex-1 flex flex-col bg-white ${isMobile ? 'h-50%' : ''}`}
+        {/* Right/Bottom pane: Content view */}
+        <div className={`flex-1 flex flex-col bg-white ${isMobile ? 'h-50%' : ''} overflow-auto`}
              style={{ minWidth: isMobile ? 'unset' : '400px' }}>
           {/* Search form */}
           <form onSubmit={handleSubmit} className="p-4 mb-4">
