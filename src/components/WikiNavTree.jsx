@@ -395,17 +395,28 @@ const WikiNavTree = () => {
     }
   };
 
+  // Adding error catching stuff
   const fetchWikiContent = async (title) => {
     try {
       setLoading(true);
       const response = await fetch(
         `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&origin=*&prop=text`
       );
+      
       const data = await response.json();
-      if (data.parse && data.parse.text) return data.parse.text['*'];
-      throw new Error('Failed to fetch Wikipedia content');
+      console.log('API Response:', data); // Debug log
+      
+      if (data.error) {
+        throw new Error(data.error.info || 'Wiki API error');
+      }
+      
+      if (data.parse?.text) {
+        return data.parse.text['*'];
+      }
+      
+      throw new Error('No content in response');
     } catch (error) {
-      console.error('Error fetching Wikipedia content:', error);
+      console.error('Fetch error details:', error);
       return null;
     } finally {
       setLoading(false);
@@ -463,17 +474,25 @@ const WikiNavTree = () => {
   };
 
   // Apply a compact (static) layout by recalculating positions recursively.
+  // actually lets not do recursive stuff for now, to avoid infinite loops without proper termination conditions
   const applyCompactLayout = () => {
     if (pages.length === 0) return;
     const pagesMap = {};
+    const processed = new Set();
+    
     pages.forEach(p => {
       pagesMap[p.id] = { ...p };
     });
-    // Assume the first page is the root.
+  
     const root = pagesMap[pages[0].id];
+    
     const updatePositions = (node) => {
+      if (processed.has(node.id)) return;
+      processed.add(node.id);
+      
       const childrenIds = node.children;
       const siblingCount = childrenIds.length;
+      
       childrenIds.forEach((childId, index) => {
         const child = pagesMap[childId];
         if (child) {
@@ -484,9 +503,9 @@ const WikiNavTree = () => {
         }
       });
     };
+    
     updatePositions(root);
-    const newPages = pages.map(p => pagesMap[p.id]);
-    setPages(newPages);
+    setPages(Object.values(pagesMap));
   };
 
   const calculateNodePosition = (parentX, parentY, index, siblingCount) => {

@@ -1,4 +1,4 @@
-# WikiNav
+# Wikinav
 <!-- ![WikiRabbit](src/assets/wikirabbit_transparent.jpg)
  -->
  <img src="public/wikirabbit_transparent.svg" width="200" height="200" alt="Image description">
