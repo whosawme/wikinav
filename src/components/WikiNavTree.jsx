@@ -477,42 +477,125 @@ const WikiNavTree = () => {
   // actually lets not do recursive stuff for now, to avoid infinite loops without proper termination conditions
   const applyCompactLayout = () => {
     if (pages.length === 0) return;
-    const pagesMap = {};
+    
+    // First, create a mapping of nodes and their levels
+    const levels = new Map();
     const processed = new Set();
+    const NODE_SIZE = 60; // diameter of node including padding
+    const LEVEL_HEIGHT = 120; // vertical spacing between levels
     
-    pages.forEach(p => {
-      pagesMap[p.id] = { ...p };
-    });
-  
-    const root = pagesMap[pages[0].id];
-    
-    const updatePositions = (node) => {
-      if (processed.has(node.id)) return;
-      processed.add(node.id);
+    // Step 1: Assign levels to all nodes (like git branch depth)
+    const assignLevels = (nodeId, level = 0) => {
+      if (!levels.has(level)) {
+        levels.set(level, []);
+      }
+      levels.get(level).push(nodeId);
+      processed.add(nodeId);
       
-      const childrenIds = node.children;
-      const siblingCount = childrenIds.length;
-      
-      childrenIds.forEach((childId, index) => {
-        const child = pagesMap[childId];
-        if (child) {
-          const newPos = calculateNodePosition(node.x, node.y, index, siblingCount);
-          child.x = newPos.x;
-          child.y = newPos.y;
-          updatePositions(child);
-        }
-      });
+      const node = pages.find(p => p.id === nodeId);
+      if (node && node.children) {
+        node.children.forEach(childId => {
+          if (!processed.has(childId)) {
+            assignLevels(childId, level + 1);
+          }
+        });
+      }
     };
+  
+    // Start with root node
+    assignLevels(pages[0].id);
+  
+    // Step 2: Position nodes by level, adjusting for overlaps
+    const newPositions = new Map();
     
-    updatePositions(root);
-    setPages(Object.values(pagesMap));
+    // Process each level
+    Array.from(levels.keys()).forEach(level => {
+      const nodesInLevel = levels.get(level);
+      const y = level * LEVEL_HEIGHT + 50; // vertical position
+      
+      // First pass: position nodes based on parent or evenly
+      nodesInLevel.forEach((nodeId, index) => {
+        const node = pages.find(p => p.id === nodeId);
+        let x;
+        
+        // If node has parent, position relative to parent
+        if (level > 0) {
+          const parentId = findParentId(nodeId);
+          if (parentId && newPositions.has(parentId)) {
+            const parentX = newPositions.get(parentId).x;
+            const siblingCount = pages.find(p => p.id === parentId).children.length;
+            const siblingIndex = pages.find(p => p.id === parentId).children.indexOf(nodeId);
+            x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE * 1.5;
+          } else {
+            x = (index + 0.5) * NODE_SIZE * 1.5;
+          }
+        } else {
+          x = (index + 0.5) * NODE_SIZE * 1.5;
+        }
+        
+        newPositions.set(nodeId, { x, y });
+      });
+      
+      // Second pass: resolve overlaps using FR-inspired repulsion
+      let hasOverlap;
+      do {
+        hasOverlap = false;
+        nodesInLevel.forEach((nodeId, i) => {
+          const pos1 = newPositions.get(nodeId);
+          
+          nodesInLevel.forEach((otherId, j) => {
+            if (i >= j) return;
+            
+            const pos2 = newPositions.get(otherId);
+            const dx = pos2.x - pos1.x;
+            const distance = Math.abs(dx);
+            
+            if (distance < NODE_SIZE) {
+              hasOverlap = true;
+              const repulsion = (NODE_SIZE - distance) / 2;
+              const moveX = repulsion * Math.sign(dx);
+              
+              newPositions.set(nodeId, {
+                ...pos1,
+                x: pos1.x - moveX
+              });
+              
+              newPositions.set(otherId, {
+                ...pos2,
+                x: pos2.x + moveX
+              });
+            }
+          });
+        });
+      } while (hasOverlap);
+    });
+    
+    // Apply new positions to pages
+    setPages(prevPages => 
+      prevPages.map(page => ({
+        ...page,
+        x: newPositions.get(page.id).x,
+        y: newPositions.get(page.id).y
+      }))
+    );
+  };
+  
+  // Helper function to find parent ID of a node
+  const findParentId = (nodeId) => {
+    const parent = pages.find(p => p.children && p.children.includes(nodeId));
+    return parent ? parent.id : null;
   };
 
   const calculateNodePosition = (parentX, parentY, index, siblingCount) => {
-    const levelSpacing = 120;
-    const nodeSpacing = horizontalSpread / Math.max(1, siblingCount - 1);
+    const levelSpacing = 120; // Vertical distance between levels
+    const nodeWidth = 100;    // Width to allocate per node including padding
+    
+    // Calculate starting X position for the first sibling
+    // Center the group of siblings under their parent
+    const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
+    
     return { 
-      x: parentX - ((siblingCount - 1) * nodeSpacing) / 2 + (index * nodeSpacing), 
+      x: startX + (index * nodeWidth), // Space nodes evenly
       y: parentY + levelSpacing 
     };
   };
