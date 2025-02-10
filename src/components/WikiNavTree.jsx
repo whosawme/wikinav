@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { Github, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
+// import { Github, Discord } from 'lucide-react';
 
 // Custom icon component for related articles (if used)
 const NetworkNodesIcon = ({ size = 20, className = "" }) => (
@@ -343,6 +344,7 @@ const WikiNavTree = () => {
     try {
       const response = await fetch(
         `https://en.wikipedia.org/w/api.php?action=parse&page=Main_Page&format=json&origin=*&prop=text`
+        // 'https://www.wikipedia.org'
       );
       const data = await response.json();
       if (data.parse && data.parse.text) {
@@ -791,6 +793,7 @@ const WikiNavTree = () => {
     ));
   };
 
+  
   return (
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
@@ -799,7 +802,7 @@ const WikiNavTree = () => {
           <div className="h-full flex flex-col">
             <div className="p-4 bg-white/90 border-b backdrop-blur-sm shadow-sm flex justify-between items-center">
               <img 
-                src="wikirabbit_transparent.svg" 
+                src="/wikirabbit_transparent.svg" 
                 alt="WikiRabbit" 
                 className="h-24 w-auto toolbar-button"
               />
@@ -923,7 +926,7 @@ const WikiNavTree = () => {
             )}
           </div>
         </div>
-      </div>
+        </div>
       <div className="w-full bg-white border-t py-1 px-4 flex justify-center items-center">
         <a 
           href="https://github.com/whosawme/wikinav" 
@@ -933,6 +936,14 @@ const WikiNavTree = () => {
           title="View on GitHub"
         >
           <Github size={20} />
+        </a>
+        <a
+          href="https://discord.gg/MquePtjtB6"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <Discord size={20} />
         </a>
       </div>
     </div>
