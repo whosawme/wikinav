@@ -1039,6 +1039,19 @@ const WikiNavTree = () => {
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
       
+      {/* Fixed header that shrinks */}
+      <div className="sticky top-0 z-30 transition-all duration-200 bg-white/90 backdrop-blur-sm shadow-sm"
+           style={{ 
+             height: scrollY > 0 ? '3rem' : '6rem',
+             minHeight: '3rem'
+           }}>
+        <img 
+          src="/wikirabbit_transparent.svg" 
+          alt="WikiRabbit" 
+          className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+        />
+      </div>
+      
       {/* Main content container with mobile adaptation */}
       <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
@@ -1049,19 +1062,8 @@ const WikiNavTree = () => {
                transition: 'all 0.3s ease-in-out',
               //  overflow: 'hidden'
      }}>
-  <CollapseButton 
-    isCollapsed={isTreePaneCollapsed} 
-    onClick={() => setIsTreePaneCollapsed(!isTreePaneCollapsed)}
-    isMobile={isMobile}
-  />
           <div className="h-full flex flex-col">
-            {/* Header with logo and controls */}
-            <div className="p-4 bg-white/90 border-b backdrop-blur-sm shadow-sm flex justify-between items-center">
-              <img 
-                src="/wikirabbit_transparent.svg" 
-                alt="WikiRabbit" 
-                className="h-24 w-auto toolbar-button"
-              />
+            
               <div className="flex gap-2">
                 <button onClick={handleReset} className="toolbar-button" title="Reset Tree">
                   Reset
@@ -1083,7 +1085,6 @@ const WikiNavTree = () => {
                 <button onClick={exportTree} className="toolbar-button" title="Export Tree">
                   <Download size={20} />
                 </button>
-              </div>
             </div>
   
             {/* Graph SVG container */}
@@ -1129,6 +1130,12 @@ const WikiNavTree = () => {
               setHorizontalSpread={setHorizontalSpread}
             />
           </div>
+  
+          <CollapseButton 
+            isCollapsed={isTreePaneCollapsed} 
+            onClick={() => setIsTreePaneCollapsed(!isTreePaneCollapsed)}
+            isMobile={isMobile}
+          />
         </div>
   
         {/* Resizer - only show on desktop */}
