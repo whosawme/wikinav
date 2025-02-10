@@ -3,6 +3,21 @@ import * as d3 from 'd3';
 import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
 // import { Github, Discord } from 'lucide-react';
 
+const useViewportSize = () => {
+  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return size;
+};
+
 // Custom icon component for related articles (if used)
 const NetworkNodesIcon = ({ size = 20, className = "" }) => (
   <svg 
@@ -262,6 +277,8 @@ const getRelatedLinks = async (title) => {
 
 const WikiNavTree = () => {
   // State declarations
+  const viewport = useViewportSize();
+  const isMobile = viewport.width < 768;
   const [horizontalSpread, setHorizontalSpread] = useState(300);
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
@@ -273,7 +290,9 @@ const WikiNavTree = () => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [leftPaneWidth, setLeftPaneWidth] = useState(400);
+  const [leftPaneWidth, setLeftPaneWidth] = useState(
+    isMobile ? viewport.width : Math.min(400, viewport.width * 0.4)
+  );
   const [isResizing, setIsResizing] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const [navigationHistory, setNavigationHistory] = useState([]);
@@ -296,13 +315,21 @@ const WikiNavTree = () => {
     fetchHomePage();
   }, []);
 
+  useEffect(() => {
+    if (isMobile) {
+      setLeftPaneWidth(viewport.width);
+    } else {
+      setLeftPaneWidth(Math.min(400, viewport.width * 0.4));
+    }
+  }, [viewport.width, isMobile]);
+
   // Global mouse event handlers
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       setIsDragging(false);
       setIsResizing(false);
     };
-
+    
     const handleGlobalMouseMove = (e) => {
       if (isDragging) {
         setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
@@ -340,6 +367,44 @@ const WikiNavTree = () => {
   const handleResizeStart = (e) => {
     setIsResizing(true);
     e.preventDefault();
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 1) {
+      setDragStart({ 
+        x: e.touches[0].clientX - pan.x, 
+        y: e.touches[0].clientY - pan.y 
+      });
+    }
+  };
+  
+  const handleTouchMove = (e) => {
+    if (e.touches.length === 1) {
+      setPan({
+        x: e.touches[0].clientX - dragStart.x,
+        y: e.touches[0].clientY - dragStart.y
+      });
+    }
+  };
+  
+  // Add ref for pinch zoom
+  const lastPinchDistance = useRef(null);
+  
+  const handleTouchZoom = (e) => {
+    if (e.touches.length === 2) {
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dist = Math.hypot(
+        touch1.clientX - touch2.clientX,
+        touch1.clientY - touch2.clientY
+      );
+  
+      if (lastPinchDistance.current) {
+        const delta = dist - lastPinchDistance.current;
+        setZoom(z => Math.min(Math.max(0.5, z + delta * 0.01), 2));
+      }
+      lastPinchDistance.current = dist;
+    }
   };
 
   // Wikipedia API functions
@@ -586,16 +651,20 @@ const WikiNavTree = () => {
     return parent ? parent.id : null;
   };
 
-  const calculateNodePosition = (parentX, parentY, index, siblingCount) => {
-    const levelSpacing = 120; // Vertical distance between levels
-    const nodeWidth = 100;    // Width to allocate per node including padding
+  const calculateNodePosition = (parentX, parentY, index, siblingCount, viewportWidth) => {
+    // Make spacing responsive to viewport width
+    const isMobile = viewportWidth < 768; // Mobile breakpoint
+    const baseNodeWidth = isMobile ? 70 : 100; // Smaller spacing on mobile
+    const baseLevelSpacing = isMobile ? 90 : 120;
     
-    // Calculate starting X position for the first sibling
-    // Center the group of siblings under their parent
+    // Scale spacing based on viewport width
+    const nodeWidth = Math.min(baseNodeWidth, viewportWidth * 0.15);
+    const levelSpacing = Math.min(baseLevelSpacing, viewportWidth * 0.2);
+    
     const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
     
     return { 
-      x: startX + (index * nodeWidth), // Space nodes evenly
+      x: startX + (index * nodeWidth),
       y: parentY + levelSpacing 
     };
   };
@@ -771,7 +840,8 @@ const WikiNavTree = () => {
                 activePage.x, 
                 activePage.y, 
                 activePage.children.length, 
-                activePage.children.length + 1
+                activePage.children.length + 1,
+                viewport.width  // Pass viewport width
               );
 
           const newPage = {
@@ -911,18 +981,23 @@ const WikiNavTree = () => {
   return (
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
-      <div className="flex flex-1 min-h-0">
-        <div className="h-full border-r gradient-bg" style={{ width: `${leftPaneWidth}px` }}>
+      
+      {/* Main content container with mobile adaptation */}
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''}`}>
+        {/* Left pane: Graph view */}
+        <div className="h-full border-r gradient-bg" 
+             style={{ 
+               width: isMobile ? '100%' : `${leftPaneWidth}px`,
+               height: isMobile ? '50%' : '100%' 
+             }}>
           <div className="h-full flex flex-col">
+            {/* Header with logo and controls */}
             <div className="p-4 bg-white/90 border-b backdrop-blur-sm shadow-sm flex justify-between items-center">
               <img 
                 src="/wikirabbit_transparent.svg" 
                 alt="WikiRabbit" 
                 className="h-24 w-auto toolbar-button"
               />
-              {/* <h2 className="text-xl font-display bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
-                WIKINAV
-              </h2> */}
               <div className="flex gap-2">
                 <button onClick={handleReset} className="toolbar-button" title="Reset Tree">
                   Reset
@@ -947,14 +1022,22 @@ const WikiNavTree = () => {
                 </button>
               </div>
             </div>
+  
+            {/* Graph SVG container */}
             <div className="flex-1 overflow-hidden">
               <svg 
                 ref={svgRef} 
                 width="100%" 
                 height="100%" 
                 onWheel={handleWheel} 
-                onMouseDown={handleMouseDown} 
-                style={{ cursor: isDragging ? 'grabbing' : 'grab' }} 
+                onMouseDown={handleMouseDown}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={() => lastPinchDistance.current = null}
+                style={{ 
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  touchAction: 'none'
+                }}
                 className="transition-all duration-200"
               >
                 <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
@@ -975,6 +1058,7 @@ const WikiNavTree = () => {
                 </g>
               </svg>
             </div>
+  
             <TreeControls 
               onCenter={handleCenterGraph}
               onFit={handleFitGraph}
@@ -983,9 +1067,15 @@ const WikiNavTree = () => {
             />
           </div>
         </div>
-        <Resizer onMouseDown={handleResizeStart} />
-        <div className="flex-1 flex flex-col p-4 min-w-[400px] bg-white">
-          <form onSubmit={handleSubmit} className="mb-4">
+  
+        {/* Resizer - only show on desktop */}
+        {!isMobile && <Resizer onMouseDown={handleResizeStart} />}
+  
+        {/* Right pane: Content view */}
+        <div className={`flex-1 flex flex-col bg-white ${isMobile ? 'h-50%' : ''}`}
+             style={{ minWidth: isMobile ? 'unset' : '400px' }}>
+          {/* Search form */}
+          <form onSubmit={handleSubmit} className="p-4 mb-4">
             <div className="relative">
               <input
                 type="text"
@@ -1014,7 +1104,9 @@ const WikiNavTree = () => {
               )}
             </div>
           </form>
-          <div className="flex gap-2 mb-4">
+  
+          {/* Back button */}
+          <div className="px-4 mb-4">
             <button
               onClick={handleBack}
               disabled={historyIndex <= 0}
@@ -1027,8 +1119,10 @@ const WikiNavTree = () => {
               Back
             </button>
           </div>
+  
+          {/* Wiki content */}
           <div 
-            className="flex-1 border rounded-lg shadow-sm p-4 overflow-auto bg-white"
+            className="flex-1 border rounded-lg shadow-sm mx-4 mb-4 overflow-auto bg-white"
             onClick={handleWikiLinkClick}
           >
             {loading ? (
@@ -1036,11 +1130,13 @@ const WikiNavTree = () => {
                 <div className="text-xl text-gray-600 animate-pulse">Loading...</div>
               </div>
             ) : (
-              <div dangerouslySetInnerHTML={{ __html: wikiContent }} className="wiki-content prose max-w-none" />
+              <div dangerouslySetInnerHTML={{ __html: wikiContent }} className="wiki-content prose max-w-none p-4" />
             )}
           </div>
         </div>
-        </div>
+      </div>
+  
+      {/* Footer */}
       <div className="w-full bg-white border-t py-1 px-4 flex justify-center items-center">
         <a 
           href="https://github.com/whosawme/wikinav" 
