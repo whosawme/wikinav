@@ -277,6 +277,7 @@ const getRelatedLinks = async (title) => {
 
 const WikiNavTree = () => {
   // State declarations
+  const [isTreePaneCollapsed, setIsTreePaneCollapsed] = useState(false);
   const viewport = useViewportSize();
   const isMobile = viewport.width < 768;
   const [horizontalSpread, setHorizontalSpread] = useState(300);
@@ -348,6 +349,27 @@ const WikiNavTree = () => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
     };
   }, [isDragging, isResizing, dragStart]);
+
+  const CollapseButton = ({ isCollapsed, onClick, isMobile }) => (
+    <button 
+      onClick={onClick}
+      className={`absolute p-2 bg-white shadow-md rounded-full transition-all duration-200 ${
+        isMobile 
+          ? `top-1/2 ${isCollapsed ? 'right-0' : 'right-0'} -translate-y-1/2 translate-x-1/2` 
+          : `top-1/2 ${isCollapsed ? 'left-0' : 'left-full'} -translate-y-1/2 -translate-x-1/2`
+      }`}
+      title={isCollapsed ? "Show Tree" : "Hide Tree"}
+    >
+      <ChevronLeft 
+        size={24} 
+        className={`transition-transform duration-200 ${
+          isMobile 
+            ? isCollapsed ? '-rotate-90' : 'rotate-90'
+            : isCollapsed ? 'rotate-180' : ''
+        }`}
+      />
+    </button>
+  );
 
   const handleWheel = (e) => {
     if (e.ctrlKey || e.metaKey) {
@@ -464,12 +486,18 @@ const WikiNavTree = () => {
   const fetchWikiContent = async (title) => {
     try {
       setLoading(true);
+      // Decode the URL-encoded title first, then normalize it for the API
+      const decodedTitle = decodeURIComponent(title)
+        .replace(/–/g, '-')  // Replace en-dash with hyphen
+        .replace(/\s+/g, '_') // Replace spaces with underscores
+        .replace(/%/g, '%25'); // Encode any remaining percent signs
+      
       const response = await fetch(
-        `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&origin=*&prop=text`
+        `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(decodedTitle)}&format=json&origin=*&prop=text`
       );
       
       const data = await response.json();
-      console.log('API Response:', data); // Debug log
+      console.log('API Response:', data); //debig log
       
       if (data.error) {
         throw new Error(data.error.info || 'Wiki API error');
@@ -661,12 +689,22 @@ const WikiNavTree = () => {
     const nodeWidth = Math.min(baseNodeWidth, viewportWidth * 0.15);
     const levelSpacing = Math.min(baseLevelSpacing, viewportWidth * 0.2);
     
-    const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
+    if (isMobile) {
+      // For mobile, switch X and Y coordinates for horizontal flow
+      const startY = parentY - ((siblingCount - 1) * nodeWidth) / 2;
+      return { 
+        x: parentX + levelSpacing,  // Move right instead of down
+        y: startY + (index * nodeWidth)
+      };
+    } else {
+      // Desktop layout remains the same
+      const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
     
-    return { 
-      x: startX + (index * nodeWidth),
-      y: parentY + levelSpacing 
-    };
+      return { 
+        x: startX + (index * nodeWidth),
+        y: parentY + levelSpacing 
+      };
+    }
   };
 
   // Event handlers for page navigation and search
@@ -795,7 +833,13 @@ const WikiNavTree = () => {
       const urlObj = new URL(url);
       if (urlObj.hostname.includes('wikipedia.org')) {
         const pathParts = urlObj.pathname.split('/');
-        return { title: decodeURIComponent(pathParts[pathParts.length - 1]), url };
+        const rawTitle = decodeURIComponent(pathParts[pathParts.length - 1]);
+        return { 
+          title: rawTitle
+            .replace(/–/g, '-')
+            .replace(/%/g, '%25'),
+          url 
+        };
       }
       return null;
     } catch (e) {
@@ -985,11 +1029,17 @@ const WikiNavTree = () => {
       {/* Main content container with mobile adaptation */}
       <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''}`}>
         {/* Left pane: Graph view */}
-        <div className="h-full border-r gradient-bg" 
-             style={{ 
-               width: isMobile ? '100%' : `${leftPaneWidth}px`,
-               height: isMobile ? '50%' : '100%' 
-             }}>
+        <div className="relative h-full border-r gradient-bg" 
+     style={{ 
+       width: isMobile ? '100%' : (isTreePaneCollapsed ? '0' : `${leftPaneWidth}px`),
+       height: isMobile ? (isTreePaneCollapsed ? '0' : '50%') : '100%',
+       transition: 'all 0.3s ease-in-out'
+     }}>
+  <CollapseButton 
+    isCollapsed={isTreePaneCollapsed} 
+    onClick={() => setIsTreePaneCollapsed(!isTreePaneCollapsed)}
+    isMobile={isMobile}
+  />
           <div className="h-full flex flex-col">
             {/* Header with logo and controls */}
             <div className="p-4 bg-white/90 border-b backdrop-blur-sm shadow-sm flex justify-between items-center">
