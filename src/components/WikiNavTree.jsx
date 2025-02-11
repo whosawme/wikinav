@@ -342,13 +342,16 @@ const WikiNavTree = () => {
     <button
       onClick={onClick}
       className={`
-        absolute bg-white shadow-md rounded-full transition-all duration-200 z-50
+        fixed bg-white shadow-md rounded-full transition-all duration-200 z-[9999]
         ${isMobile
-          ? `left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2` // Position at bottom center of tree pane
-          : `top-1/2 -translate-y-1/2 -right-6`  // Desktop position remains unchanged
+          ? isCollapsed 
+            ? 'top-0 left-1/2 -translate-x-1/2'  // When collapsed in mobile
+            : 'top-[50%] left-1/2 -translate-x-1/2'  // When expanded in mobile
+          : `top-1/2 -translate-y-1/2 ${isCollapsed ? 'left-0' : 'left-[400px]'}`  // Desktop positions
         }
         p-2
       `}
+      style={!isMobile && !isCollapsed ? { left: `${leftPaneWidth - 24}px` } : {}}
       title={isCollapsed ? "Show Tree" : "Hide Tree"}
     >
       <ChevronLeft
@@ -365,7 +368,7 @@ const WikiNavTree = () => {
   
   // lower z score to keep collapse button up front
   const searchBarContainer = `
-    flex items-center px-4 mb-4 relative z-[100]
+    flex items-center px-4 mb-4 relative z-[01]
   `;
   
   // keeping a lower z-index to make sure the collapse button not hidden behind
@@ -754,9 +757,25 @@ const WikiNavTree = () => {
   const handleBack = () => {
     if (historyIndex > 0) {
       const previousPage = navigationHistory[historyIndex - 1];
-      setActivePage(previousPage);
+      
+      // Update wiki content first
       setWikiContent(previousPage.content);
+      
+      // Update history index
       setHistoryIndex(prev => prev - 1);
+      
+      // Set active page (only once)
+      setActivePage(previousPage);
+      
+      // Update tree visualization if tree is expanded
+      if (!isTreePaneCollapsed) {
+        setPages(prevPages => 
+          prevPages.map(page => ({
+            ...page,
+            isActive: page.id === previousPage.id
+          }))
+        );
+      }
     }
   };
 
@@ -800,6 +819,7 @@ const WikiNavTree = () => {
         target: childId
       }))
     );
+  
 
     const simulation = d3.forceSimulation(pages)
       .force('link', d3.forceLink(links).id(d => d.id).distance(150))
@@ -966,11 +986,15 @@ const WikiNavTree = () => {
     }
   }, [showSeeAlso, activePage]);
 
-  // Effect for navigation history
+  // Update the navigation history effect
   useEffect(() => {
+    // Only update navigation history if we have an active page and it's different from current
     if (activePage && (navigationHistory[historyIndex]?.id !== activePage.id)) {
       setNavigationHistory(prev => [...prev.slice(0, historyIndex + 1), activePage]);
       setHistoryIndex(prev => prev + 1);
+      
+      // Ensure content is set regardless of tree pane state
+      setWikiContent(activePage.content);
     }
   }, [activePage, historyIndex, navigationHistory]);
 
@@ -1035,152 +1059,141 @@ const WikiNavTree = () => {
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
       
+      {/* Add the CollapseButton here, before the flex container */}
+      <CollapseButton
+        isCollapsed={isTreePaneCollapsed}
+        onClick={handleTreePaneToggle}
+        isMobile={isMobile}
+      />
+      
       <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
           className="relative gradient-bg border-r border-gray-200" 
           style={{
             width: isMobile 
-              ? '100%'  // Always full width on mobile
+              ? '100%'
               : isTreePaneCollapsed 
                 ? '0.5rem' 
                 : `${leftPaneWidth}px`,
             height: isMobile
               ? isTreePaneCollapsed
-                ? '0.5rem'  // Leave small visible portion when collapsed
+                ? '0.5rem'
                 : '50%'
               : '100%',
             transition: 'all 0.3s ease-in-out',
-            // overflow: 'hidden',
             position: 'relative',
-            zIndex: 1, // Base z-index
+            zIndex: 1,
           }}
         >
-
-          <CollapseButton
-            isCollapsed={isTreePaneCollapsed}
-            onClick={handleTreePaneToggle}
-            isMobile={isMobile}
-          />
-
-<div className={`h-full flex flex-col ${
-            isMobile && isTreePaneCollapsed ? 'opacity-0' : 'opacity-100'
-          } transition-opacity duration-200`}>
-                  {/* Top Section - Logo and Controls Inline */}
-                  <div className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" style={{ 
-                   height: scrollY > 0 ? '3rem' : '6rem',
-                   minHeight: '3rem'
-                 }}>
-                    <img 
-                      src="/wikirabbit_transparent.svg" 
-                      alt="WikiRabbit" 
-                      className="h-full w-auto p-2 toolbar-button transition-all duration-200"
-                    />
-                     <div className="flex items-center space-x-2"> {/* Container for inline controls */}
-                     <button
-                        onClick={() => {
-                          console.log('Center Graph button clicked');
-                          centerGraph();
-                        }}
-                        className="toolbar-button"
-                        title="Center Graph"
-                    >
-                        <ZoomIn size={20}/>
-                    </button>
-                    <button
-                        onClick={() => {
-                          console.log('Fit Graph button clicked');
-                          fitGraph();
-                        }}
-                        className="toolbar-button"
-                        title="Fit Graph"
-                    >
-                        <ZoomOut size={20} />
-                    </button>
-                       {/* Reset Button */}
-                       <button
-                         onClick={handleReset}
-                         className="toolbar-button" title="Reset Tree"
-                       >
-                         Reset
-                       </button>
-                       {/* Splay Toggle */}
-                       <button
-                          onClick={handleToggleSplay}
-                          className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
-                          title="Splay Tree"
-                          disabled={isAnimating}
-                       >
-                        {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-                       </button>
-                       {/* Related Pages Toggle */}
-                       <button
-                           onClick={() => setShowSeeAlso(prev => !prev)} 
-                           className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
-                           title="Toggle Related Pages"
-                         >
-                           <NetworkNodesIcon size={20} />
-                       </button>
-                       {/* Download Link */}
-                       <button onClick={exportTree} className="toolbar-button" title="Export Tree">
-                         <Download size={20} />
-                       </button>
-                     </div>
-
-                  </div>
-
             
-              
-  
-            {/* Graph SVG container */}
-            <div className="flex-1 overflow-hidden">
-              <svg 
-                ref={svgRef} 
-                width="100%" 
-                height="100%" 
-                onWheel={handleWheel} 
-                onMouseDown={handleMouseDown}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={() => lastPinchDistance.current = null}
+          {/* Only render tree content when not collapsed */}
+          {!isTreePaneCollapsed && (
+            <div className="h-full flex flex-col">
+              {/* Top Section - Logo and Controls */}
+              <div 
+                className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" 
                 style={{ 
-                  cursor: isDragging ? 'grabbing' : 'grab',
-                  touchAction: 'none'
+                  height: scrollY > 0 ? '3rem' : '6rem',
+                  minHeight: '3rem'
                 }}
-                className="transition-all duration-200"
               >
-                <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                  {renderEdges()}
-                  {renderSeeAlsoEdges()}
-                  {pages.map(page => (
-                    <NodeComponent 
-                      key={page.id} 
-                      x={page.x} 
-                      y={page.y} 
-                      title={page.title} 
-                      thumbnail={page.thumbnail} 
-                      isActive={activePage && page.id === activePage.id} 
-                      onClick={() => handleNodeClick(page)} 
-                    />
-                  ))}
-                  {renderSeeAlsoNodes()}
-                </g>
-              </svg>
+                <img 
+                  src="/wikirabbit_transparent.svg" 
+                  alt="WikiRabbit" 
+                  className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+                />
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleCenterGraph}
+                    className="toolbar-button"
+                    title="Center Graph"
+                  >
+                    <ZoomIn size={20}/>
+                  </button>
+                  <button
+                    onClick={handleFitGraph}
+                    className="toolbar-button"
+                    title="Fit Graph"
+                  >
+                    <ZoomOut size={20} />
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    className="toolbar-button" 
+                    title="Reset Tree"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    onClick={handleToggleSplay}
+                    className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
+                    title="Splay Tree"
+                    disabled={isAnimating}
+                  >
+                    {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                  </button>
+                  <button
+                    onClick={() => setShowSeeAlso(prev => !prev)} 
+                    className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
+                    title="Toggle Related Pages"
+                  >
+                    <NetworkNodesIcon size={20} />
+                  </button>
+                  <button 
+                    onClick={exportTree} 
+                    className="toolbar-button" 
+                    title="Export Tree"
+                  >
+                    <Download size={20} />
+                  </button>
+                </div>
+              </div>
+  
+              {/* Graph SVG container */}
+              <div className="flex-1 overflow-hidden">
+                <svg 
+                  ref={svgRef} 
+                  width="100%" 
+                  height="100%" 
+                  onWheel={handleWheel} 
+                  onMouseDown={handleMouseDown}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={() => lastPinchDistance.current = null}
+                  style={{ 
+                    cursor: isDragging ? 'grabbing' : 'grab',
+                    touchAction: 'none'
+                  }}
+                  className="transition-all duration-200"
+                >
+                  <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+                    {renderEdges()}
+                    {renderSeeAlsoEdges()}
+                    {pages.map(page => (
+                      <NodeComponent 
+                        key={page.id} 
+                        x={page.x} 
+                        y={page.y} 
+                        title={page.title} 
+                        thumbnail={page.thumbnail} 
+                        isActive={activePage && page.id === activePage.id} 
+                        onClick={() => handleNodeClick(page)} 
+                      />
+                    ))}
+                    {renderSeeAlsoNodes()}
+                  </g>
+                </svg>
+              </div>
+  
+              <TreeControls 
+                onCenter={handleCenterGraph}
+                onFit={handleFitGraph}
+                horizontalSpread={horizontalSpread}
+                setHorizontalSpread={setHorizontalSpread}
+              />
             </div>
-  
-            <TreeControls 
-              onCenter={handleCenterGraph}
-              onFit={handleFitGraph}
-              horizontalSpread={horizontalSpread}
-              setHorizontalSpread={setHorizontalSpread}
-            />
-          </div>
-  
-          <CollapseButton 
-            isCollapsed={isTreePaneCollapsed} 
-            onClick={handleTreePaneToggle}
-            isMobile={isMobile}
-          />
+          )}
         </div>
   
         {/* Resizer - only show on desktop */}
@@ -1192,7 +1205,7 @@ const WikiNavTree = () => {
           style={{ 
             height: isMobile 
               ? isTreePaneCollapsed 
-                ? 'calc(100% - 0.5rem)'  // Account for collapsed tree pane
+                ? 'calc(100% - 0.5rem)'
                 : '50%' 
               : '100%',
             minWidth: isMobile ? 'unset' : '400px',
@@ -1200,7 +1213,7 @@ const WikiNavTree = () => {
           }}
         >
           {/* Search form and Back button */}
-          <div className="flex items-center px-4 mb-4">
+          <div className={searchBarContainer}>
             <button
               onClick={handleBack}
               disabled={historyIndex <= 0}
@@ -1241,9 +1254,7 @@ const WikiNavTree = () => {
                 )}
               </div>
             </form>
-         
           </div>
-
   
           {/* Wiki content */}
           <div 
@@ -1255,7 +1266,10 @@ const WikiNavTree = () => {
                 <div className="text-xl text-gray-600 animate-pulse">Loading...</div>
               </div>
             ) : (
-              <div dangerouslySetInnerHTML={{ __html: wikiContent }} className="wiki-content prose max-w-none p-4" />
+              <div 
+                dangerouslySetInnerHTML={{ __html: wikiContent }} 
+                className="wiki-content prose max-w-none p-4" 
+              />
             )}
           </div>
         </div>
@@ -1285,4 +1299,4 @@ const WikiNavTree = () => {
   );
 };
 
-export default WikiNavTree;
+  export default WikiNavTree;
