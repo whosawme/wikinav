@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
 // import { Github, Discord } from 'lucide-react';
+import { ZoomIn, ZoomOut, ArrowLeft} from 'lucide-react';
+// import { graphToJSON } from './utils';
+    
+
 
 const useViewportSize = () => {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -244,36 +248,7 @@ const Resizer = ({ onMouseDown }) => (
 // Tree Controls Component
 const TreeControls = ({ onCenter, onFit, horizontalSpread, setHorizontalSpread }) => (
   <div className="tree-controls space-y-2">
-    <div className="flex space-x-2">
-      <button onClick={onCenter} className="control-button flex-1">
-        Center Graph
-      </button>
-      <button onClick={onFit} className="control-button flex-1">
-        Fit Graph
-      </button>
-    </div>
-    {/* <div className="flex space-x-2">
-      <button
-        onClick={() => {
-          const newSpread = Math.max(50, horizontalSpread * 0.7);
-          setHorizontalSpread(newSpread);
-        }}
-        className="control-button flex-1"
-      >
-        <ChevronLeft size={16} />
-        <span>Narrow</span>
-      </button>
-      <button
-        onClick={() => {
-          const newSpread = Math.min(1000, horizontalSpread * 1.4);
-          setHorizontalSpread(newSpread);
-        }}
-        className="control-button flex-1"
-      >
-        <span>Widen</span>
-        <ChevronRight size={16} />
-      </button>
-    </div> */}
+
   </div>
 );
 
@@ -364,24 +339,41 @@ const WikiNavTree = () => {
   }, [isDragging, isResizing, dragStart]);
 
   const CollapseButton = ({ isCollapsed, onClick, isMobile }) => (
-    <button 
+    <button
       onClick={onClick}
-      className={`absolute p-2 bg-white shadow-md rounded-full transition-all duration-200 ${
-        isMobile 
-          ? 'bottom-0 translate-y-1/2' // Center at bottom of tree pane
-          : `-right-6 top-1/2 -translate-y-1/2` // Center on right border
-      }`}
+      className={`
+        absolute bg-white shadow-md rounded-full transition-all duration-200 z-50
+        ${isMobile
+          ? `left-1/2 -translate-x-1/2 bottom-0 translate-y-1/2` // Position at bottom center of tree pane
+          : `top-1/2 -translate-y-1/2 -right-6`  // Desktop position remains unchanged
+        }
+        p-2
+      `}
       title={isCollapsed ? "Show Tree" : "Hide Tree"}
     >
-      <ChevronLeft 
-        size={24} 
+      <ChevronLeft
+        size={24}
         className={`transition-transform duration-200 ${
-          isMobile 
+          isMobile
             ? isCollapsed ? '-rotate-90' : 'rotate-90'
             : isCollapsed ? 'rotate-180' : ''
         }`}
       />
     </button>
+  );
+    
+  
+  // lower z score to keep collapse button up front
+  const searchBarContainer = `
+    flex items-center px-4 mb-4 relative z-[100]
+  `;
+  
+  // keeping a lower z-index to make sure the collapse button not hidden behind
+  const Resizer = ({ onMouseDown }) => (
+    <div 
+      className="w-2 cursor-col-resize bg-gray-200 hover:bg-gray-300 active:bg-gray-400 transition-colors z-[100]" 
+      onMouseDown={onMouseDown} 
+    />
   );
 
   const handleWheel = (e) => {
@@ -841,6 +833,10 @@ const WikiNavTree = () => {
     }
   };
 
+  const handleTreePaneToggle = () => {
+    setIsTreePaneCollapsed(prev => !prev);
+  };
+
   const extractPageTitle = (url) => {
     try {
       const urlObj = new URL(url);
@@ -1039,53 +1035,102 @@ const WikiNavTree = () => {
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
       
-      {/* Fixed header that shrinks */}
-      <div className="sticky top-0 z-30 transition-all duration-200 bg-white/90 backdrop-blur-sm shadow-sm"
-           style={{ 
-             height: scrollY > 0 ? '3rem' : '6rem',
-             minHeight: '3rem'
-           }}>
-        <img 
-          src="/wikirabbit_transparent.svg" 
-          alt="WikiRabbit" 
-          className="h-full w-auto p-2 toolbar-button transition-all duration-200"
-        />
-      </div>
-      
-      {/* Main content container with mobile adaptation */}
       <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
-        <div className="relative border-r gradient-bg" 
-     style={{ 
-       width: isMobile ? '100%' : (isTreePaneCollapsed ? '0' : `${leftPaneWidth}px`),
-       height: isMobile ? (isTreePaneCollapsed ? '0' : '50%') : '100%',
-               transition: 'all 0.3s ease-in-out',
-              //  overflow: 'hidden'
-     }}>
-          <div className="h-full flex flex-col">
+        <div 
+          className="relative gradient-bg border-r border-gray-200" 
+          style={{
+            width: isMobile 
+              ? '100%'  // Always full width on mobile
+              : isTreePaneCollapsed 
+                ? '0.5rem' 
+                : `${leftPaneWidth}px`,
+            height: isMobile
+              ? isTreePaneCollapsed
+                ? '0.5rem'  // Leave small visible portion when collapsed
+                : '50%'
+              : '100%',
+            transition: 'all 0.3s ease-in-out',
+            // overflow: 'hidden',
+            position: 'relative',
+            zIndex: 1, // Base z-index
+          }}
+        >
+
+          <CollapseButton
+            isCollapsed={isTreePaneCollapsed}
+            onClick={handleTreePaneToggle}
+            isMobile={isMobile}
+          />
+
+<div className={`h-full flex flex-col ${
+            isMobile && isTreePaneCollapsed ? 'opacity-0' : 'opacity-100'
+          } transition-opacity duration-200`}>
+                  {/* Top Section - Logo and Controls Inline */}
+                  <div className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" style={{ 
+                   height: scrollY > 0 ? '3rem' : '6rem',
+                   minHeight: '3rem'
+                 }}>
+                    <img 
+                      src="/wikirabbit_transparent.svg" 
+                      alt="WikiRabbit" 
+                      className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+                    />
+                     <div className="flex items-center space-x-2"> {/* Container for inline controls */}
+                     <button
+                        onClick={() => {
+                          console.log('Center Graph button clicked');
+                          centerGraph();
+                        }}
+                        className="toolbar-button"
+                        title="Center Graph"
+                    >
+                        <ZoomIn size={20}/>
+                    </button>
+                    <button
+                        onClick={() => {
+                          console.log('Fit Graph button clicked');
+                          fitGraph();
+                        }}
+                        className="toolbar-button"
+                        title="Fit Graph"
+                    >
+                        <ZoomOut size={20} />
+                    </button>
+                       {/* Reset Button */}
+                       <button
+                         onClick={handleReset}
+                         className="toolbar-button" title="Reset Tree"
+                       >
+                         Reset
+                       </button>
+                       {/* Splay Toggle */}
+                       <button
+                          onClick={handleToggleSplay}
+                          className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
+                          title="Splay Tree"
+                          disabled={isAnimating}
+                       >
+                        {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                       </button>
+                       {/* Related Pages Toggle */}
+                       <button
+                           onClick={() => setShowSeeAlso(prev => !prev)} 
+                           className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
+                           title="Toggle Related Pages"
+                         >
+                           <NetworkNodesIcon size={20} />
+                       </button>
+                       {/* Download Link */}
+                       <button onClick={exportTree} className="toolbar-button" title="Export Tree">
+                         <Download size={20} />
+                       </button>
+                     </div>
+
+                  </div>
+
             
-              <div className="flex gap-2">
-                <button onClick={handleReset} className="toolbar-button" title="Reset Tree">
-                  Reset
-                </button>
-                <button 
-                  onClick={() => setShowSeeAlso(prev => !prev)} 
-                  className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
-                  title="Toggle Related Pages"
-                >
-                  <NetworkNodesIcon size={20} />
-                </button>
-              <button onClick={handleToggleSplay}
-                  className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
-                  title="Splay Tree"
-                  disabled={isAnimating}
-                >
-                  {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-                </button>
-                <button onClick={exportTree} className="toolbar-button" title="Export Tree">
-                  <Download size={20} />
-                </button>
-            </div>
+              
   
             {/* Graph SVG container */}
             <div className="flex-1 overflow-hidden">
@@ -1133,7 +1178,7 @@ const WikiNavTree = () => {
   
           <CollapseButton 
             isCollapsed={isTreePaneCollapsed} 
-            onClick={() => setIsTreePaneCollapsed(!isTreePaneCollapsed)}
+            onClick={handleTreePaneToggle}
             isMobile={isMobile}
           />
         </div>
@@ -1142,53 +1187,63 @@ const WikiNavTree = () => {
         {!isMobile && <Resizer onMouseDown={handleResizeStart} />}
   
         {/* Right/Bottom pane: Content view */}
-        <div className={`flex-1 flex flex-col bg-white ${isMobile ? 'h-50%' : ''} overflow-auto`}
-             style={{ minWidth: isMobile ? 'unset' : '400px' }}>
-          {/* Search form */}
-          <form onSubmit={handleSubmit} className="p-4 mb-4">
-            <div className="relative">
-              <input
-                type="text"
-                value={searchInput}
-                onChange={handleInputChange}
-                placeholder="Enter Wikipedia URL or search term..."
-                className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
-              />
-              {searchResults.length > 0 && (
-                <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
-                  {searchResults.map((result, index) => (
-                    <div
-                      key={index}
-                      className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
-                      onClick={async () => {
-                        await loadNewPage({ title: result.title, url: result.url });
-                        setSearchInput('');
-                        setSearchResults([]);
-                      }}
-                    >
-                      <div className="font-medium text-gray-900">{result.title}</div>
-                      <div className="text-sm text-gray-600 mt-1">{result.description}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </form>
-  
-          {/* Back button */}
-          <div className="px-4 mb-4">
+        <div 
+          className="flex-1 flex flex-col bg-white overflow-auto"
+          style={{ 
+            height: isMobile 
+              ? isTreePaneCollapsed 
+                ? 'calc(100% - 0.5rem)'  // Account for collapsed tree pane
+                : '50%' 
+              : '100%',
+            minWidth: isMobile ? 'unset' : '400px',
+            transition: 'all 0.3s ease-in-out'
+          }}
+        >
+          {/* Search form and Back button */}
+          <div className="flex items-center px-4 mb-4">
             <button
               onClick={handleBack}
               disabled={historyIndex <= 0}
-              className={`px-4 py-2 rounded-lg shadow transition-all duration-200 ${
-                historyIndex <= 0 
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+              className={`mr-4 p-2 rounded-full shadow transition-all duration-200 ${
+                historyIndex <= 0
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
               }`}
             >
-              Back
+              <ArrowLeft size={20} />
             </button>
+            <form onSubmit={handleSubmit} className="flex-grow mr-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={handleInputChange}
+                  placeholder="Enter Wikipedia URL or search term..."
+                  className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
+                />
+                {searchResults.length > 0 && (
+                  <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+                    {searchResults.map((result, index) => (
+                      <div
+                        key={index}
+                        className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
+                        onClick={async () => {
+                          await loadNewPage({ title: result.title, url: result.url });
+                          setSearchInput('');
+                          setSearchResults([]);
+                        }}
+                      >
+                        <div className="font-medium text-gray-900">{result.title}</div>
+                        <div className="text-sm text-gray-600 mt-1">{result.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </form>
+         
           </div>
+
   
           {/* Wiki content */}
           <div 
