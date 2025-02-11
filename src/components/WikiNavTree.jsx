@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 // import { Github, Discord } from 'lucide-react';
 import { ZoomIn, ZoomOut, ArrowLeft} from 'lucide-react';
 // import { graphToJSON } from './utils';
@@ -33,6 +33,8 @@ const useViewportSize = () => {
 
   return size;
 };
+
+
 
 // Custom icon component for related articles (if used)
 const NetworkNodesIcon = ({ size = 20, className = "" }) => (
@@ -296,12 +298,110 @@ const WikiNavTree = () => {
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
 
+  const handleShare = () => {
+    // Create a simplified version of the tree for sharing
+    const shareableTree = pages.map(page => ({
+      id: page.id,
+      title: page.title,
+      url: page.url,
+      children: page.children
+    }));
+  
+    // Create a shareable object with tree data and active page
+    const shareData = {
+      tree: shareableTree,
+      activePageId: activePage?.id
+    };
+  
+    // Convert to base64 to make it URL-friendly
+    const encodedData = btoa(JSON.stringify(shareData));
+
+    // Create the shareable URL
+    const shareableUrl = `${window.location.origin}${window.location.pathname}?tree=${encodedData}`;
+  
+    // Copy to clipboard
+    navigator.clipboard.writeText(shareableUrl).then(() => {
+      alert('Share link copied to clipboard!');
+    }).catch(err => {
+      console.error('Failed to copy share link:', err);
+      alert('Failed to generate share link');
+    });
+  };
+
+  const loadSharedTree = async (encodedData) => {
+    try {
+      const shareData = JSON.parse(atob(encodedData));
+      const { tree, activePageId } = shareData;
+  
+      // Load all pages first
+      for (const page of tree) {
+        const content = await fetchWikiContent(page.title);
+        const thumbnail = await fetchWikiThumbnail(page.title);
+        if (content) {
+          page.content = content;
+          page.thumbnail = thumbnail;
+          // Use the original positions for the first page, calculate for others
+          if (pages.length === 0) {
+            page.x = 50;
+            page.y = 50;
+          } else {
+            const position = calculateNodePosition(
+              pages[pages.length - 1].x,
+              pages[pages.length - 1].y,
+              pages.length,
+              tree.length,
+              viewport.width
+            );
+            page.x = position.x;
+            page.y = position.y;
+          }
+        }
+      }
+  
+      // Set all pages at once
+      setPages(tree);
+
+  
+    // Set active page
+    if (activePageId) {
+      const newActivePage = tree.find(p => p.id === activePageId);
+      if (newActivePage) {
+        setActivePage(newActivePage);
+        setWikiContent(newActivePage.content);
+      }
+    }
+
+    // Apply layout
+    if (isSplayed) {
+      applyForceDirectedLayout();
+    } else {
+      applyCompactLayout();
+    }
+  } catch (error) {
+    console.error('Error loading shared tree:', error);
+    alert('Failed to load shared tree');
+  }
+};
+
+
+
   // to avoid key collisions
   const generateUniqueId = () => `page-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   useEffect(() => {
     document.title = 'WikiNav';
+
+    // Check for shared tree in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedTree = urlParams.get('tree');
+
+    if (sharedTree) {
+      loadSharedTree(sharedTree);
+      // Clean up the URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
     fetchHomePage();
+    }
   }, []);
 
   useEffect(() => {
@@ -318,6 +418,8 @@ const WikiNavTree = () => {
       setIsDragging(false);
       setIsResizing(false);
     };
+
+    
     
     const handleGlobalMouseMove = (e) => {
       if (isDragging) {
@@ -1086,7 +1188,7 @@ const WikiNavTree = () => {
             zIndex: 1,
           }}
         >
-            
+
           {/* Only render tree content when not collapsed */}
           {!isTreePaneCollapsed && (
             <div className="h-full flex flex-col">
@@ -1140,11 +1242,21 @@ const WikiNavTree = () => {
                   >
                     <NetworkNodesIcon size={20} />
                   </button>
+                     {/* Add the Share button to the toolbar (in the render section): */}
+                    <button
+                        onClick={handleShare}
+                        className="toolbar-button"
+                        title="Share Tree"
+                      >
+                        <Share2 size={20} />
+                      </button>
                   <button 
                     onClick={exportTree} 
                     className="toolbar-button" 
                     title="Export Tree"
                   >
+
+
                     <Download size={20} />
                   </button>
                 </div>
