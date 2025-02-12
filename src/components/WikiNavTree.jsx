@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 // import { Github, Discord } from 'lucide-react';
 import { ZoomIn, ZoomOut, ArrowLeft} from 'lucide-react';
 // import { graphToJSON } from './utils';
+import LoadingBunny from './LoadingBunny';
     
 
 
@@ -33,6 +34,8 @@ const useViewportSize = () => {
 
   return size;
 };
+
+
 
 // Custom icon component for related articles (if used)
 const NetworkNodesIcon = ({ size = 20, className = "" }) => (
@@ -268,6 +271,7 @@ const WikiNavTree = () => {
   const [scrollY, setScrollY] = useState(0); //scroll tracking for header
   const viewport = useViewportSize();
   const isMobile = viewport.width < 768;
+
   const [horizontalSpread, setHorizontalSpread] = useState(300);
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
@@ -290,18 +294,116 @@ const WikiNavTree = () => {
   const [showSeeAlso, setShowSeeAlso] = useState(false);
   const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
 
+  const [treePaneMode, setTreePaneMode] = useState('normal'); // 'collapsed', 'normal', 'expanded'
 
   // Refs
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
 
+  const [isLoadingShared, setIsLoadingShared] = useState(false);
+
+  const handleShare = () => {
+    // Create a simplified version of the tree for sharing
+    const shareableTree = pages.map(page => ({
+      id: page.id,
+      title: page.title,
+      url: page.url,
+      children: page.children
+    }));
+  
+    // Create a shareable object with tree data and active page
+    const shareData = {
+      tree: shareableTree,
+      activePageId: activePage?.id
+    };
+  
+    // Convert to base64 to make it URL-friendly
+    const encodedData = btoa(JSON.stringify(shareData));
+
+    // Create the shareable URL
+    const shareableUrl = `${window.location.origin}${window.location.pathname}?tree=${encodedData}`;
+  
+    // Copy to clipboard
+    navigator.clipboard.writeText(shareableUrl).then(() => {
+      alert('Share link copied to clipboard!');
+    }).catch(err => {
+      console.error('Failed to copy share link:', err);
+      alert('Failed to generate share link');
+    });
+  };
+
+  const loadSharedTree = async (encodedData) => {
+    setIsLoadingShared(true);
+    try {
+      const shareData = JSON.parse(atob(encodedData));
+      const { tree, activePageId } = shareData;
+  
+      // Set expanded view and splay mode immediately
+      setTreePaneMode('expanded');
+      setIsSplayed(true);
+  
+      // Load pages with distributed initial positions
+      const width = window.innerWidth * 0.85; // 85vw for expanded mode
+      const height = window.innerHeight;
+      
+      for (const page of tree) {
+        const content = await fetchWikiContent(page.title);
+        const thumbnail = await fetchWikiThumbnail(page.title);
+        if (content) {
+          page.content = content;
+          page.thumbnail = thumbnail;
+          // Distribute nodes in a circle initially
+          const angle = (Math.PI * 2 * tree.indexOf(page)) / tree.length;
+          const radius = Math.min(width, height) / 4;
+          page.x = width/2 + radius * Math.cos(angle);
+          page.y = height/2 + radius * Math.sin(angle);
+        }
+      }
+  
+      setPages(tree);
+      
+      if (activePageId) {
+        const newActivePage = tree.find(p => p.id === activePageId);
+        if (newActivePage) {
+          setActivePage(newActivePage);
+          setWikiContent(newActivePage.content);
+        }
+      }
+  
+      // Apply force layout with a slight delay
+      setTimeout(() => {
+        applyForceDirectedLayout();
+      }, 100);
+  
+    } catch (error) {
+      console.error('Error loading shared tree:', error);
+      alert('Failed to load shared tree');
+    } finally {
+      setIsLoadingShared(false);
+    }
+  };
+
+
+
+
   // to avoid key collisions
   const generateUniqueId = () => `page-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   useEffect(() => {
     document.title = 'WikiNav';
+
+    // Check for shared tree in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedTree = urlParams.get('tree');
+
+    if (sharedTree) {
+      loadSharedTree(sharedTree);
+      // Clean up the URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
     fetchHomePage();
+    }
   }, []);
 
   useEffect(() => {
@@ -318,6 +420,8 @@ const WikiNavTree = () => {
       setIsDragging(false);
       setIsResizing(false);
     };
+
+    
     
     const handleGlobalMouseMove = (e) => {
       if (isDragging) {
@@ -338,32 +442,74 @@ const WikiNavTree = () => {
     };
   }, [isDragging, isResizing, dragStart]);
 
-  const CollapseButton = ({ isCollapsed, onClick, isMobile }) => (
-    <button
-      onClick={onClick}
-      className={`
-        fixed bg-white shadow-md rounded-full transition-all duration-200 z-[9999]
-        ${isMobile
-          ? isCollapsed 
-            ? 'top-0 left-1/2 -translate-x-1/2'  // When collapsed in mobile
-            : 'top-[50%] left-1/2 -translate-x-1/2'  // When expanded in mobile
-          : `top-1/2 -translate-y-1/2 ${isCollapsed ? 'left-0' : 'left-[400px]'}`  // Desktop positions
-        }
-        p-2
-      `}
-      style={!isMobile && !isCollapsed ? { left: `${leftPaneWidth - 24}px` } : {}}
-      title={isCollapsed ? "Show Tree" : "Hide Tree"}
-    >
-      <ChevronLeft
-        size={24}
-        className={`transition-transform duration-200 ${
-          isMobile
-            ? isCollapsed ? '-rotate-90' : 'rotate-90'
-            : isCollapsed ? 'rotate-180' : ''
-        }`}
-      />
-    </button>
-  );
+  // Update the CollapseButton component
+  const CollapseButton = ({ mode, onClick, isMobile }) => {
+    const getButtonStyles = () => {
+      if (isMobile) {
+        return {
+          position: 'absolute',
+          top: mode === 'collapsed' ? '0' : '50%',
+          left: '50%',
+          transform: `translate(-50%, ${mode === 'collapsed' ? '0' : '-50%'})`,
+        };
+      }
+      return {
+        position: 'absolute',
+        top: '50%',
+        left: '100%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 99999,
+      };
+    };
+  
+    return (
+      <button
+        onClick={onClick}
+        className="bg-white shadow-md rounded-full p-2"
+        style={getButtonStyles()}
+      >
+        <ChevronLeft
+          size={24}
+          className={`transition-transform duration-200 ${
+            isMobile
+              ? mode === 'collapsed' ? '-rotate-90' : 'rotate-90'
+              : mode === 'collapsed' ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+    );
+  };
+
+
+    // Update the main tree pane width logic
+  const getTreePaneWidth = () => {
+    if (isMobile) {
+      return '100%';
+    }
+    switch(treePaneMode) {
+      case 'collapsed':
+        return '0.5rem';
+      case 'normal':
+        return `${leftPaneWidth}px`;
+      case 'expanded':
+        return '85vw';
+    }
+  };
+
+  // Update tree pane toggle handler
+  const handleTreePaneToggle = () => {
+    switch(treePaneMode) {
+      case 'collapsed':
+        setTreePaneMode('normal');
+        break;
+      case 'normal':
+        setTreePaneMode('expanded');
+        break;
+      case 'expanded':
+        setTreePaneMode('collapsed');
+        break;
+    }
+  };
     
   
   // lower z score to keep collapse button up front
@@ -813,6 +959,7 @@ const WikiNavTree = () => {
   const applyForceDirectedLayout = () => {
     if (pages.length === 0) return;
     setIsAnimating(true);
+    
     const links = pages.flatMap(page => 
       page.children.map(childId => ({
         source: page.id,
@@ -820,15 +967,25 @@ const WikiNavTree = () => {
       }))
     );
   
-
+    // Give initial random positions around the center
+    const width = svgRef.current.clientWidth;
+    const height = svgRef.current.clientHeight;
+    pages.forEach(page => {
+      page.x = width/2 + (Math.random() - 0.5) * width/2;
+      page.y = height/2 + (Math.random() - 0.5) * height/2;
+    });
+  
     const simulation = d3.forceSimulation(pages)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(150))
-      .force('charge', d3.forceManyBody().strength(-300))
-      .force('center', d3.forceCenter(svgRef.current.clientWidth / 2, svgRef.current.clientHeight / 2))
-      .force('collide', d3.forceCollide(40))
+      .force('link', d3.forceLink(links).id(d => d.id).distance(200))
+      .force('charge', d3.forceManyBody().strength(-1000))
+      .force('center', d3.forceCenter(width/2, height/2))
+      .force('collide', d3.forceCollide(80))
+      .force('x', d3.forceX(width/2).strength(0.1))
+      .force('y', d3.forceY(height/2).strength(0.1))
       .alpha(1)
+      .alphaDecay(0.02)
       .restart();
-
+  
     simulationRef.current = simulation;
       
     simulation.on('tick', () => {
@@ -853,9 +1010,9 @@ const WikiNavTree = () => {
     }
   };
 
-  const handleTreePaneToggle = () => {
-    setIsTreePaneCollapsed(prev => !prev);
-  };
+  // const handleTreePaneToggle = () => {
+  //   setIsTreePaneCollapsed(prev => !prev);
+  // };
 
   const extractPageTitle = (url) => {
     try {
@@ -1071,22 +1228,22 @@ const WikiNavTree = () => {
         <div 
           className="relative gradient-bg border-r border-gray-200" 
           style={{
-            width: isMobile 
-              ? '100%'
-              : isTreePaneCollapsed 
-                ? '0.5rem' 
-                : `${leftPaneWidth}px`,
+            width: getTreePaneWidth(),
             height: isMobile
-              ? isTreePaneCollapsed
+              ? treePaneMode === 'collapsed'
                 ? '0.5rem'
                 : '50%'
               : '100%',
             transition: 'all 0.3s ease-in-out',
             position: 'relative',
-            zIndex: 1,
           }}
         >
-            
+        <CollapseButton
+            mode={treePaneMode}
+            onClick={handleTreePaneToggle}
+            isMobile={isMobile}
+          />
+
           {/* Only render tree content when not collapsed */}
           {!isTreePaneCollapsed && (
             <div className="h-full flex flex-col">
@@ -1140,11 +1297,21 @@ const WikiNavTree = () => {
                   >
                     <NetworkNodesIcon size={20} />
                   </button>
+                     {/* Add the Share button to the toolbar (in the render section): */}
+                    <button
+                        onClick={handleShare}
+                        className="toolbar-button"
+                        title="Share Tree"
+                      >
+                        <Share2 size={20} />
+                      </button>
                   <button 
                     onClick={exportTree} 
                     className="toolbar-button" 
                     title="Export Tree"
                   >
+
+
                     <Download size={20} />
                   </button>
                 </div>
@@ -1295,6 +1462,7 @@ const WikiNavTree = () => {
           <Discord size={20} />
         </a>
       </div>
+      {isLoadingShared && <LoadingBunny />}
     </div>
   );
 };
