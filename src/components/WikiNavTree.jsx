@@ -7,6 +7,75 @@ import {ArrowLeft} from 'lucide-react';
 import LoadingBunny from './LoadingBunny';
 
     
+const NavigationBar = ({ 
+  handleBack, 
+  handleForward,
+  historyIndex, 
+  navigationHistory,
+  handleSubmit, 
+  searchInput, 
+  handleInputChange, 
+  searchResults, 
+  loadNewPage,
+  setSearchInput,
+  setSearchResults 
+}) => (
+  <div className="flex items-center px-4 mb-4 relative z-[01] gap-2">
+    <button
+      onClick={handleBack}
+      disabled={historyIndex <= 0}
+      className={`p-2 rounded-full shadow transition-all duration-200 ${
+        historyIndex <= 0
+          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+          : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+      }`}
+    >
+      <ArrowLeft size={20} />
+    </button>
+
+    <form onSubmit={handleSubmit} className="flex-1">
+      <div className="relative">
+        <input
+          type="text"
+          value={searchInput}
+          onChange={handleInputChange}
+          placeholder="Enter Wikipedia URL or search term..."
+          className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
+        />
+        {searchResults.length > 0 && (
+          <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+            {searchResults.map((result, index) => (
+              <div
+                key={index}
+                className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
+                onClick={async () => {
+                  await loadNewPage({ title: result.title, url: result.url });
+                  setSearchInput('');
+                  setSearchResults([]);
+                }}
+              >
+                <div className="font-medium text-gray-900">{result.title}</div>
+                <div className="text-sm text-gray-600 mt-1">{result.description}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </form>
+
+    <button
+      onClick={handleForward}
+      disabled={historyIndex >= navigationHistory.length - 1}
+      className={`p-2 rounded-full shadow transition-all duration-200 ${
+        historyIndex >= navigationHistory.length - 1
+          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+          : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+      }`}
+    >
+      <ArrowLeft size={20} className="rotate-180" />
+    </button>
+  </div>
+);
 
 
 const useViewportSize = () => {
@@ -297,6 +366,26 @@ const WikiNavTree = () => {
 
   const [treePaneMode, setTreePaneMode] = useState('normal'); // 'collapsed', 'normal', 'expanded'
 
+  const [touchStart, setTouchStart] = useState(0);
+  const [touchEnd, setTouchEnd] = useState(0);
+
+  const handleTouchStartSwipe = (e) => {
+    setTouchStart(e.touches[0].clientX);
+  };
+
+  const handleTouchEndSwipe = (e) => {
+    setTouchEnd(e.changedTouches[0].clientX);
+    const swipeDistance = touchStart - touchEnd;
+    
+    if (Math.abs(swipeDistance) > 50) { // Min swipe distance
+      if (swipeDistance > 0) {
+        handleForward();
+      } else {
+        handleBack();
+      }
+    }
+  };
+
   // Refs
   const containerRef = useRef(null);
   const svgRef = useRef(null);
@@ -334,12 +423,13 @@ const WikiNavTree = () => {
       const parsedData = JSON.parse(data);
       const { nodes } = parsedData;
       
-      // Distribute nodes in a circle initially
       const width = svgRef.current.clientWidth;
       const height = svgRef.current.clientHeight;
+      
+      // Adjust initial positions based on mobile/desktop
       const radius = Math.min(width, height) / 4;
-      const centerX = width / 2;
-      const centerY = height / 2;
+      const centerX = isMobile ? height / 2 : width / 2;
+      const centerY = isMobile ? width / 2 : height / 2;
       
       const loadedNodes = await Promise.all(nodes.map(async (node, index) => {
         const content = await fetchWikiContent(node.title);
@@ -354,33 +444,22 @@ const WikiNavTree = () => {
           y: centerY + radius * Math.sin(angle)
         };
       }));
-  
+
       setPages(loadedNodes);
-      
       if (loadedNodes.length > 0) {
-      setActivePage(loadedNodes[0]);
-      setWikiContent(loadedNodes[0].content);
+        setActivePage(loadedNodes[0]);
+        setWikiContent(loadedNodes[0].content);
       }
-  
-      // Apply force layout after a delay to let React render the nodes
+
       setTimeout(() => {
-        applyForceDirectedLayout();
-        
-        // Wait for force layout to settle before fitting
-        setTimeout(() => {
-          handleFitGraph();
-          setIsSplayed(true);
-      }, 1000);
+        applyForceDirectedLayout(loadedNodes, svgRef.current, isMobile);
       }, 100);
-      
     } catch (error) {
       console.error('Share load failed:', error);
-      alert('Invalid share link');
     } finally {
       setIsLoadingShared(false);
     }
   };
-
 
   // to avoid key collisions
   const generateUniqueId = () => `page-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -901,6 +980,24 @@ const WikiNavTree = () => {
     }
   };
 
+  const handleForward = () => {
+    if (historyIndex < navigationHistory.length - 1) {
+      const nextPage = navigationHistory[historyIndex + 1];
+      setWikiContent(nextPage.content);
+      setHistoryIndex(prev => prev + 1);
+      setActivePage(nextPage);
+      
+      if (!isTreePaneCollapsed) {
+        setPages(prevPages => 
+          prevPages.map(page => ({
+            ...page,
+            isActive: page.id === nextPage.id
+          }))
+        );
+      }
+    }
+  };
+
   const handleNodeClick = (page) => {
     setActivePage(page);
     setWikiContent(page.content);
@@ -954,20 +1051,27 @@ const WikiNavTree = () => {
         page.y = height/2 + (Math.random() - 0.5) * height/3;
       }
     });
-  
+
+    
     const simulation = d3.forceSimulation(pages)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(150))
-      .force('charge', d3.forceManyBody().strength(-1500))
-      .force('center', d3.forceCenter(width/2, height/2))
-      .force('collide', d3.forceCollide(100))
-      .force('x', d3.forceX(width/2).strength(0.1))
-      .force('y', d3.forceY(height/2).strength(0.1))
-      .alpha(1)
-      .alphaDecay(0.01)
-      .restart();
-  
+    .force('link', d3.forceLink(links).id(d => d.id).distance(150))
+    .force('charge', d3.forceManyBody().strength(-1500))
+    .force('center', d3.forceCenter(width/2, height/2))
+    .force('collide', d3.forceCollide(100))
+    .force('x', d3.forceX(width/2).strength(0.1))
+    .force('y', d3.forceY(height/2).strength(0.1))
+    .alpha(1)
+    .alphaDecay(0.01)
+    .restart();
+    
+    // Modify the force simulation for mobile
+    if (isMobile) {
+      simulation
+        .force('x', d3.forceX(height/2).strength(0.1))
+        .force('y', d3.forceY(width/2).strength(0.1));
+    }
     simulationRef.current = simulation;
-      
+    
     simulation.on('tick', () => {
       setPages(simulation.nodes().map(n => ({ ...n })));
       if (simulation.alpha() < 0.01) {
@@ -1191,15 +1295,62 @@ const WikiNavTree = () => {
     ));
   };
 
+  const HeaderComponent = ({ scrollY, handleReset, isMobile, isTreePaneCollapsed }) => (
+    <div 
+      className={`sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm ${
+        isTreePaneCollapsed ? 'h-16' : ''
+      }`}
+      style={{ 
+        height: !isTreePaneCollapsed ? (scrollY > 0 ? '3rem' : '6rem') : undefined,
+        minHeight: '3rem'
+      }}
+    >
+      <img 
+        src="/wikirabbit_transparent.svg" 
+        alt="WikiRabbit" 
+        className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+      />
+      {isTreePaneCollapsed && (
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleReset}
+            className="toolbar-button" 
+            title="Reset Tree"
+          >
+            Reset
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const SearchComponent = ({ handleBack, historyIndex, handleSubmit, searchInput, handleInputChange, searchResults, loadNewPage }) => (
+    <div className="flex items-center px-4 mb-4 relative z-[01]">
+      <button
+        onClick={handleBack}
+        disabled={historyIndex <= 0}
+        className={`mr-4 p-2 rounded-full shadow transition-all duration-200 ${
+          historyIndex <= 0
+            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+            : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+        }`}
+      >
+        <ArrowLeft size={20} />
+      </button>
+      <form onSubmit={handleSubmit} className="flex-grow mr-4">
+        {/* ... rest of search form code ... */}
+      </form>
+    </div>
+  );
+
+
   
   return (
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
       
       
-      
-      
-      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col divide-y divide-gray-200' : ''} overflow-hidden`}>
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
         className="relative gradient-bg border-r border-gray-200" 
@@ -1223,78 +1374,76 @@ const WikiNavTree = () => {
 
 
           {/* Only render tree content when not collapsed */}
+          {/* Header always visible */}
+          <div 
+            className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" 
+            style={{ 
+              height: scrollY > 0 ? '3rem' : '6rem',
+              minHeight: '3rem'
+            }}
+          >
+            <img 
+              src="/wikirabbit_transparent.svg" 
+              alt="WikiRabbit" 
+              className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+            />
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleReset}
+                className="toolbar-button" 
+                title="Reset Tree"
+              >
+                Reset
+              </button>
+              <button
+                onClick={handleFitGraph}
+                className="toolbar-button"
+                title="Fit Graph"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <circle cx="12" cy="12" r="3"/>
+                  <line x1="12" y1="3" x2="12" y2="9"/>
+                  <line x1="12" y1="15" x2="12" y2="21"/>
+                  <line x1="3" y1="12" x2="9" y2="12"/>
+                  <line x1="15" y1="12" x2="21" y2="12"/>
+                </svg>
+              </button>
+              <button
+                onClick={handleToggleSplay}
+                className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
+                title="Splay Tree"
+                disabled={isAnimating}
+              >
+                {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+              </button>
+              <button
+                onClick={() => setShowSeeAlso(prev => !prev)} 
+                className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
+                title="Toggle Related Pages"
+              >
+                <NetworkNodesIcon size={20} />
+              </button>
+              <button
+                onClick={handleShare}
+                className="toolbar-button"
+                title="Share Tree"
+              >
+                <Share2 size={20} />
+              </button>
+              <button 
+                onClick={exportTree} 
+                className="toolbar-button" 
+                title="Export Tree"
+              >
+                <Download size={20} />
+              </button>
+            </div>
+          </div>
+
+          {/* Tree content */}
           {!isTreePaneCollapsed && (
             <div className="h-full flex flex-col">
-              {/* Top Section - Logo and Controls */}
-              <div 
-                className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" 
-                style={{ 
-                  height: scrollY > 0 ? '3rem' : '6rem',
-                  minHeight: '3rem'
-                }}
-              >
-                <img 
-                  src="/wikirabbit_transparent.svg" 
-                  alt="WikiRabbit" 
-                  className="h-full w-auto p-2 toolbar-button transition-all duration-200"
-                />
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleReset}
-                    className="toolbar-button" 
-                    title="Reset Tree"
-                  >
-                    Reset
-                  </button>
-                <button
-                  onClick={handleFitGraph}
-                  className="toolbar-button"
-                  title="Fit Graph"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2"/>
-                    <circle cx="12" cy="12" r="3"/>
-                    <line x1="12" y1="3" x2="12" y2="9"/>
-                    <line x1="12" y1="15" x2="12" y2="21"/>
-                    <line x1="3" y1="12" x2="9" y2="12"/>
-                    <line x1="15" y1="12" x2="21" y2="12"/>
-                  </svg>
-                </button>
-                  <button
-                    onClick={handleToggleSplay}
-                    className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
-                    title="Splay Tree"
-                    disabled={isAnimating}
-                  >
-                    {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-                  </button>
-                  <button
-                    onClick={() => setShowSeeAlso(prev => !prev)} 
-                    className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
-                    title="Toggle Related Pages"
-                  >
-                    <NetworkNodesIcon size={20} />
-                  </button>
-                     {/* Add the Share button to the toolbar (in the render section): */}
-                    <button
-                        onClick={handleShare}
-                        className="toolbar-button"
-                        title="Share Tree"
-                      >
-                        <Share2 size={20} />
-                      </button>
-                  <button 
-                    onClick={exportTree} 
-                    className="toolbar-button" 
-                    title="Export Tree"
-                  >
-
-
-                    <Download size={20} />
-                  </button>
-                </div>
-              </div>
-  
               {/* Graph SVG container */}
               <div className="flex-1 overflow-hidden">
                 <svg 
@@ -1349,61 +1498,37 @@ const WikiNavTree = () => {
           style={{ 
             height: isMobile 
               ? isTreePaneCollapsed 
-                ? 'calc(100% - 0.5rem)'
+                // ? 'calc(100% - 0.5rem)'
+                ? 'calc(100% - 4rem)'  // Adjust for header height
                 : '50%' 
               : '100%',
             minWidth: isMobile ? 'unset' : '400px',
             transition: 'all 0.3s ease-in-out'
           }}
         >
-          {/* Search form and Back button */}
-          <div className={searchBarContainer}>
-            <button
-              onClick={handleBack}
-              disabled={historyIndex <= 0}
-              className={`mr-4 p-2 rounded-full shadow transition-all duration-200 ${
-                historyIndex <= 0
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
-              }`}
-            >
-              <ArrowLeft size={20} />
-            </button>
-            <form onSubmit={handleSubmit} className="flex-grow mr-4">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={handleInputChange}
-                  placeholder="Enter Wikipedia URL or search term..."
-                  className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
-                />
-                {searchResults.length > 0 && (
-                  <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
-                    {searchResults.map((result, index) => (
-                      <div
-                        key={index}
-                        className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
-                        onClick={async () => {
-                          await loadNewPage({ title: result.title, url: result.url });
-                          setSearchInput('');
-                          setSearchResults([]);
-                        }}
-                      >
-                        <div className="font-medium text-gray-900">{result.title}</div>
-                        <div className="text-sm text-gray-600 mt-1">{result.description}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </form>
-          </div>
+
+
+          
+            <NavigationBar 
+            handleBack={handleBack}
+            handleForward={handleForward}
+            historyIndex={historyIndex}
+            navigationHistory={navigationHistory}
+            handleSubmit={handleSubmit}
+            searchInput={searchInput}
+            handleInputChange={handleInputChange}
+            searchResults={searchResults}
+            loadNewPage={loadNewPage}
+            setSearchInput={setSearchInput}
+            setSearchResults={setSearchResults}
+          />
   
           {/* Wiki content */}
           <div 
             className="flex-1 border rounded-lg shadow-sm mx-4 mb-4 overflow-auto bg-white"
             onClick={handleWikiLinkClick}
+            onTouchStart={handleTouchStartSwipe}
+            onTouchEnd={handleTouchEndSwipe}
           >
             {loading ? (
               <div className="flex items-center justify-center h-full">
