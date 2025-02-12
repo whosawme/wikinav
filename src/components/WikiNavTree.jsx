@@ -1198,7 +1198,8 @@ const WikiNavTree = () => {
       
       
       
-      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
+      
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col divide-y divide-gray-200' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
         className="relative gradient-bg border-r border-gray-200" 
