@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 // import { Github, Discord } from 'lucide-react';
-import { ZoomIn, ZoomOut, ArrowLeft} from 'lucide-react';
+import {ArrowLeft} from 'lucide-react';
 // import { graphToJSON } from './utils';
 import LoadingBunny from './LoadingBunny';
 
@@ -437,14 +437,19 @@ const WikiNavTree = () => {
   const CollapseButton = ({ mode, onClick, isMobile }) => (
     <button
       onClick={onClick}
-      className="absolute bg-white shadow-md rounded-full p-2"
+      className={`absolute bg-white shadow-md p-2 border ${isMobile ? 'rounded-full' : 'rounded-r-full border-l-0'}`}
       style={{
-        top: '50%',
-        left: mode === 'collapsed' ? '0.25rem' : isMobile ? '50%' : `${leftPaneWidth}px`,
-        transform: isMobile 
-          ? `translate(-50%, ${mode === 'collapsed' ? '0' : '-50%'})` 
-          : 'translate(-50%, -50%)',
-        zIndex: 9999,
+        ...(isMobile ? {
+          left: '50%',
+          bottom: '-20px',  // Position at bottom of tree pane
+          transform: 'translateX(-50%)',
+          zIndex: 50,
+        } : {
+          top: '50%',
+          right: '-20px',
+          transform: 'translateY(-50%)',
+          zIndex: 50,
+        })
       }}
     >
       <ChevronLeft
@@ -1191,28 +1196,29 @@ const WikiNavTree = () => {
     <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
       <style>{styles}</style>
       
-      {/* Add the CollapseButton here, before the flex container */}
-      <CollapseButton
-        isCollapsed={isTreePaneCollapsed}
-        onClick={handleTreePaneToggle}
-        isMobile={isMobile}
-      />
+      
       
       <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
-          className="relative gradient-bg border-r border-gray-200" 
-          style={{
-            width: getTreePaneWidth(),
-            height: isMobile
-              ? treePaneMode === 'collapsed'
-                ? '0.5rem'
-                : '50%'
-              : '100%',
-            transition: 'all 0.3s ease-in-out',
-            position: 'relative',
-          }}
+        className="relative gradient-bg border-r border-gray-200" 
+        style={{
+          width: getTreePaneWidth(),
+          height: isMobile
+            ? treePaneMode === 'collapsed'
+              ? '0.5rem'
+              : '50%'
+            : '100%',
+          transition: 'all 0.3s ease-in-out',
+          position: 'relative',
+        }}
         >
+        {/* Add CollapseButton here */}
+        <CollapseButton
+          mode={treePaneMode}
+          onClick={handleTreePaneToggle}
+          isMobile={isMobile}
+        />
 
 
           {/* Only render tree content when not collapsed */}
@@ -1233,26 +1239,26 @@ const WikiNavTree = () => {
                 />
                 <div className="flex items-center space-x-2">
                   <button
-                    onClick={handleCenterGraph}
-                    className="toolbar-button"
-                    title="Center Graph"
-                  >
-                    <ZoomIn size={20}/>
-                  </button>
-                  <button
-                    onClick={handleFitGraph}
-                    className="toolbar-button"
-                    title="Fit Graph"
-                  >
-                    <ZoomOut size={20} />
-                  </button>
-                  <button
                     onClick={handleReset}
                     className="toolbar-button" 
                     title="Reset Tree"
                   >
                     Reset
                   </button>
+                <button
+                  onClick={handleFitGraph}
+                  className="toolbar-button"
+                  title="Fit Graph"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <circle cx="12" cy="12" r="3"/>
+                    <line x1="12" y1="3" x2="12" y2="9"/>
+                    <line x1="12" y1="15" x2="12" y2="21"/>
+                    <line x1="3" y1="12" x2="9" y2="12"/>
+                    <line x1="15" y1="12" x2="21" y2="12"/>
+                  </svg>
+                </button>
                   <button
                     onClick={handleToggleSplay}
                     className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
@@ -1325,7 +1331,6 @@ const WikiNavTree = () => {
               </div>
   
               <TreeControls 
-                onCenter={handleCenterGraph}
                 onFit={handleFitGraph}
                 horizontalSpread={horizontalSpread}
                 setHorizontalSpread={setHorizontalSpread}
