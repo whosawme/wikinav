@@ -242,57 +242,156 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
   const gradientId = `node-gradient-${safeId}`;
   
   return (
-    <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
-      <defs>
-        <clipPath id={safeId}>
-          <circle r="25" />
-        </clipPath>
-        <radialGradient id={gradientId}>
-          <stop offset="0%" stopColor={isActive ? '#3b82f6' : '#fff'} />
-          <stop offset="100%" stopColor={isActive ? '#2563eb' : '#f8fafc'} />
-        </radialGradient>
-      </defs>
-      <circle 
-        r="30" 
-        fill={`url(#${gradientId})`}
-        stroke={suggested ? '#94a3b8' : (isActive ? '#1d4ed8' : '#64748b')}
-        strokeWidth="2"
-        style={suggested ? { opacity: 0.7 } : {}}
-        className="transition-all duration-200 ease-in-out"
-      />
-      {thumbnail && (
-        <image
-          x="-25"
-          y="-25"
-          width="50"
-          height="50"
-          href={thumbnail}
-          clipPath={`url(#${safeId})`}
-          preserveAspectRatio="xMidYMid slice"
-          className="transition-opacity duration-200"
+    // <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
+    //   <defs>
+    //     <clipPath id={safeId}>
+    //       <circle r="25" />
+    //     </clipPath>
+    //     <radialGradient id={gradientId}>
+    //       <stop offset="0%" stopColor={isActive ? '#3b82f6' : '#fff'} />
+    //       <stop offset="100%" stopColor={isActive ? '#2563eb' : '#f8fafc'} />
+    //     </radialGradient>
+    //   </defs>
+    //   <circle 
+    //     r="30" 
+    //     fill={`url(#${gradientId})`}
+    //     stroke={suggested ? '#94a3b8' : (isActive ? '#1d4ed8' : '#64748b')}
+    //     strokeWidth="2"
+    //     style={suggested ? { opacity: 0.7 } : {}}
+    //     className="transition-all duration-200 ease-in-out"
+    //   />
+    //   {thumbnail && (
+    //     <image
+    //       x="-25"
+    //       y="-25"
+    //       width="50"
+    //       height="50"
+    //       href={thumbnail}
+    //       clipPath={`url(#${safeId})`}
+    //       preserveAspectRatio="xMidYMid slice"
+    //       className="transition-opacity duration-200"
+    //     />
+    //   )}
+    //   <text 
+    //     textAnchor="middle" 
+    //     dy="50"
+    //     style={suggested ? { opacity: 0.8, fill: '#64748b' } : {}}
+    //     className={`text-sm ${isActive ? 'font-bold text-blue-600' : 'text-slate-700'} transition-all duration-200`}
+    //   >
+    //     {title.split(' ').reduce((lines, word) => {
+    //       const lastLine = lines[lines.length - 1];
+    //       if (!lastLine || (lastLine + ' ' + word).length > 15) {
+    //         lines.push(word);
+    //       } else {
+    //         lines[lines.length - 1] = `${lastLine} ${word}`;
+    //       }
+    //       return lines;
+    //     }, []).map((line, i) => (
+    //       <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>
+    //         {line}
+    //       </tspan>
+    //     ))}
+    //   </text>
+    // </g>
+
+<g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
+  <defs>
+    <clipPath id={safeId}>
+      <circle r="40" /> {/* Increased radius */}
+    </clipPath>
+    <radialGradient id={gradientId}>
+      <stop offset="0%" stopColor={isActive ? '#3b82f6' : '#fff'} />
+      <stop offset="100%" stopColor={isActive ? '#2563eb' : '#f8fafc'} />
+    </radialGradient>
+  </defs>
+  <circle 
+    r="45"  
+    fill={`url(#${gradientId})`}
+    stroke={suggested ? '#94a3b8' : (isActive ? '#1d4ed8' : '#64748b')}
+    strokeWidth="1"
+    style={suggested ? { opacity: 0.7 } : {}}
+    className="transition-all duration-200 ease-in-out"
+  />
+  {thumbnail && (
+    <image
+      x="-40"   
+      y="-40"
+      width="100"  
+      height="100"
+      href={thumbnail}
+      clipPath={`url(#${safeId})`}
+      preserveAspectRatio="xMidYMid slice"
+      className="transition-opacity duration-200"
+    />
+  )}
+  {/* <text 
+    textAnchor="middle" 
+    dy="60"  
+    style={suggested ? { opacity: 0.8, fill: '#64748b' } : {}}
+    className={`text-sm ${isActive ? 'font-bold text-blue-600' : 'text-slate-700'} transition-all duration-200`}
+  >
+    {title.split(' ').reduce((lines, word) => {
+      const lastLine = lines[lines.length - 1];
+      if (!lastLine || (lastLine + ' ' + word).length > 15) {
+        lines.push(word);
+      } else {
+        lines[lines.length - 1] = `${lastLine} ${word}`;
+      }
+      return lines;
+    }, []).map((line, i) => (
+      <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>
+        {line}
+      </tspan>
+    ))}
+  </text> */}
+
+
+{(() => {
+    const lines = title.split(' ').reduce((acc, word) => {
+      const lastLine = acc[acc.length - 1];
+      if (!lastLine || (lastLine + ' ' + word).length > 15) {
+        acc.push(word);
+      } else {
+        acc[acc.length - 1] = `${lastLine} ${word}`;
+      }
+      return acc;
+    }, []);
+
+    const textWidth = 80; 
+    const textHeight = lines.length * 18 + 10; 
+
+    return (
+      <>
+       
+        <rect 
+          x={-textWidth / 2} 
+          y={-17} 
+          width={textWidth} 
+          height={textHeight} 
+          rx="6"  
+          fill="rgba(0, 0, 0, 0.6)" 
         />
-      )}
-      <text 
-        textAnchor="middle" 
-        dy="50"
-        style={suggested ? { opacity: 0.8, fill: '#64748b' } : {}}
-        className={`text-sm ${isActive ? 'font-bold text-blue-600' : 'text-slate-700'} transition-all duration-200`}
-      >
-        {title.split(' ').reduce((lines, word) => {
-          const lastLine = lines[lines.length - 1];
-          if (!lastLine || (lastLine + ' ' + word).length > 15) {
-            lines.push(word);
-          } else {
-            lines[lines.length - 1] = `${lastLine} ${word}`;
-          }
-          return lines;
-        }, []).map((line, i) => (
-          <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    </g>
+
+        
+        <text 
+          textAnchor="middle" 
+          dy="60"
+          fill="white"
+          className={`text-sm ${isActive ? 'font-bold text-blue-400' : 'text-white'} transition-all duration-200`}
+        >
+          {lines.map((line, i) => (
+            <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </>
+    );
+  })()}
+</g>
+
+
+
   );
 };
 
@@ -909,6 +1008,30 @@ const WikiNavTree = () => {
       // Desktop layout remains the same
       const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
     
+      
+      // const same_parent = pages.filter(element => element.parent_id==activePage.id);
+      // if (same_parent.length!=0){
+      // const maxx = Math.max(...same_parent.map(obj => obj.x));
+      // var posx=maxx+nodeWidth;
+      // var posy=parentY+levelSpacing;
+      // }
+
+      var posx=startX+(index*nodeWidth)
+      var posy= parentY + levelSpacing 
+
+  //     pages.forEach((element, index) => {
+  // if ((Math.abs(element.x -posx)<nodeWidth) && (posy==element.y)){
+  //     posx=posx+nodeWidth
+  //   }
+  //       });
+
+
+
+  
+    return { 
+      x:posx,
+      y: posy
+    };
       return { 
         x: startX + (index * nodeWidth),
         y: parentY + levelSpacing 
@@ -1157,8 +1280,8 @@ const WikiNavTree = () => {
                 activePage.children.length + 1,
                 viewport.width  // Pass viewport width
               );
-
           const newPage = {
+            parent_id:pages.length==0 ?"0":activePage.id,
             id: generateUniqueId(),
             title: pageInfo.title.replace(/_/g, ' '),
             url: pageInfo.url,
@@ -1170,14 +1293,85 @@ const WikiNavTree = () => {
           };
 
           setPages(prevPages => {
+            prevPages=[...prevPages,newPage];
+            const isMobile = viewport.width < 768; // Mobile breakpoint
+            const baseNodeWidth = isMobile ? 70 : 100; // Smaller spacing on mobile
+            const baseLevelSpacing = isMobile ? 90 : 120;
+            
+            // Scale spacing based on viewport width
+            const nodeWidth = Math.min(baseNodeWidth, viewport.width * 0.15);
+            const levelSpacing = Math.min(baseLevelSpacing, viewport.width * 0.2);
+            if (prevPages.length!=0){
+              let nodeWidth = 50;
+              let spacing = 0;
+          let maxy= Math.max(...prevPages.map(obj => obj.y));
+          let maxx= Math.max(...prevPages.map(obj => obj.x));
+          console.log("Maxx",maxx);
+          console.log("Maxy",maxy);
+           for(let i=170;i<=maxy;i=i+120)
+           {
+
+            let filteredArr = prevPages.filter(obj => obj.y == i);
+            if (filteredArr.length>1)
+            {
+
+              for(let j=50;j<=maxx;j=j+100)
+                {
+                 
+                  let index = prevPages
+                      .map((obj, ind) => ((obj.x === j) && (obj.y === i)) ? ind : -1)
+                      .filter(ind => ind !== -1);
+                  if (index.length==2){
+                    if (prevPages[index[0]].parent_id==prevPages[index[1]].parent_id){
+
+                      prevPages[index[1]].x=j+100;
+
+                    }
+                    else{
+
+                      let indexA = prevPages.findIndex(obj => obj.id === prevPages[index[0]].parent_id);
+                      let indexB = prevPages.findIndex(obj => obj.id === prevPages[index[1]].parent_id);
+                      if(indexB>indexA){
+
+                      prevPages[index[1]].x=j+100;
+
+                      }
+                      else{
+
+                        prevPages[index[0]].x=j+100;
+
+                      }
+
+                    }
+
+
+                  }
+               
+
+     
+                }
+            }
+        
+
+           }
+              
+              
+              
+          }
+
+
+
+
+            
             const updatedPages = [...prevPages];
+
             if (activePage) {
               const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
               if (activePageIndex !== -1) {
                 updatedPages[activePageIndex].children.push(newPage.id);
               }
             }
-            return [...updatedPages, newPage];
+            return updatedPages;
           });
           setActivePage(newPage);
           setWikiContent(content);
@@ -1185,6 +1379,7 @@ const WikiNavTree = () => {
           setWikiContent(content);
         }
       }
+      
       // If in splay mode, re-run the simulation to re-space nodes.
       if (isSplayed) {
         applyForceDirectedLayout();
@@ -1441,6 +1636,8 @@ const WikiNavTree = () => {
             </div>
           </div>
 
+{/* svgGraph */}
+
           {/* Tree content */}
           {!isTreePaneCollapsed && (
             <div className="h-full flex flex-col">
@@ -1477,6 +1674,7 @@ const WikiNavTree = () => {
                     ))}
                     {renderSeeAlsoNodes()}
                   </g>
+
                 </svg>
               </div>
   
