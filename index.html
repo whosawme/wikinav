@@ -3,17 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#3b82f6" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="WikiNav" />
+    <link rel="apple-touch-icon" href="/wikirabbit_transparent.svg" />
     
-    <meta property="og:title" content="WikiRabbit" />
-    <meta property="og:description" content="Cuz the rabbit hole aint linear" />
+    <!-- SEO & Social -->
+    <meta property="og:title" content="WikiNav - Wikipedia Navigation Tree" />
+    <meta property="og:description" content="Navigate Wikipedia pages in an interactive tree visualization. Because going down the rabbit hole isn't linear." />
     <meta property="og:image" content="https://wikinav.com/wikirabbit_transparent.jpg">
     <meta property="og:url" content="https://wikinav.com" />
-    <meta name="keywords" content="wikipedia, navigation tool, wikitool, nonlinear, wikinav, page plotting, graph, wikigraph, graph, network">
+    <meta name="keywords" content="wikipedia, navigation tool, wikitool, nonlinear, wikinav, page plotting, graph, wikigraph, graph, network, pwa">
+    <meta name="description" content="Navigate Wikipedia pages in an interactive tree visualization. Explore knowledge connections visually." />
 
     
-    <title>WikiRabbit</title>
+    <title>WikiNav - Wikipedia Tree Navigation</title>
   </head>
   <body>
     <div id="root"></div>

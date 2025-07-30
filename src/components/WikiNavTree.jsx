@@ -5,6 +5,12 @@ import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, Chev
 import {ArrowLeft} from 'lucide-react';
 // import { graphToJSON } from './utils';
 import LoadingBunny from './LoadingBunny';
+import PWAInstallPrompt from './PWAInstallPrompt';
+import MobileBottomNav from './MobileBottomNav';
+import PullToRefresh from './PullToRefresh';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { useSmartPanning } from '../hooks/useSmartPanning';
+import MobileScrollHints from './MobileScrollHints';
 
     
 const NavigationBar = ({ 
@@ -128,7 +134,269 @@ const NetworkNodesIcon = ({ size = 20, className = "" }) => (
   </svg>
 );
 
+// Network View Panel Component
+const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
+  const networkSvgRef = React.useRef(null);
+  const [networkZoom, setNetworkZoom] = React.useState(1);
+  const [networkPan, setNetworkPan] = React.useState({ x: 0, y: 0 });
+  const [isDraggingNetwork, setIsDraggingNetwork] = React.useState(false);
+  const [dragStartNetwork, setDragStartNetwork] = React.useState({ x: 0, y: 0 });
+  const simulationRef = React.useRef(null);
+  const [networkNodes, setNetworkNodes] = React.useState([]);
+  const [networkLinks, setNetworkLinks] = React.useState([]);
+
+  // Initialize network data when panel opens
+  React.useEffect(() => {
+    if (isOpen && pages.length > 0) {
+      // Clone the pages data for network view
+      const clonedNodes = pages.map(page => ({
+        ...page,
+        x: page.x || 0,
+        y: page.y || 0,
+        id: page.id,
+        title: page.title,
+        thumbnail: page.thumbnail,
+        isActive: activePage && page.id === activePage.id
+      }));
+
+      // Create links from parent-child relationships
+      const links = [];
+      pages.forEach(page => {
+        if (page.children) {
+          page.children.forEach(childId => {
+            links.push({
+              source: page.id,
+              target: childId
+            });
+          });
+        }
+      });
+
+      setNetworkNodes(clonedNodes);
+      setNetworkLinks(links);
+
+      // Start force simulation with cloned data
+      setTimeout(() => {
+        if (networkSvgRef.current) {
+          runNetworkSimulation(clonedNodes, links);
+        }
+      }, 100);
+    }
+
+    // Cleanup simulation when closing
+    return () => {
+      if (simulationRef.current) {
+        simulationRef.current.stop();
+        simulationRef.current = null;
+      }
+    };
+  }, [isOpen, pages, activePage]);
+
+  const runNetworkSimulation = (nodes, links) => {
+    const width = networkSvgRef.current.clientWidth;
+    const height = networkSvgRef.current.clientHeight;
+
+    // Stop any existing simulation
+    if (simulationRef.current) {
+      simulationRef.current.stop();
+    }
+
+    const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(150))
+      .force('charge', d3.forceManyBody().strength(-1500))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide(80))
+      .force('x', d3.forceX(width / 2).strength(0.05))
+      .force('y', d3.forceY(height / 2).strength(0.05));
+
+    simulationRef.current = simulation;
+
+    simulation.on('tick', () => {
+      setNetworkNodes([...nodes]);
+    });
+  };
+
+  const handleNetworkWheel = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      setNetworkZoom(z => Math.min(Math.max(0.3, z + delta), 3));
+    }
+  };
+
+  const handleNetworkMouseDown = (e) => {
+    if (e.button === 0) {
+      setIsDraggingNetwork(true);
+      setDragStartNetwork({ x: e.clientX - networkPan.x, y: e.clientY - networkPan.y });
+    }
+  };
+
+  const handleNetworkMouseMove = (e) => {
+    if (isDraggingNetwork) {
+      setNetworkPan({ x: e.clientX - dragStartNetwork.x, y: e.clientY - dragStartNetwork.y });
+    }
+  };
+
+  const handleNetworkMouseUp = () => {
+    setIsDraggingNetwork(false);
+  };
+
+  // Fit network to view
+  const fitNetwork = () => {
+    if (networkSvgRef.current && networkNodes.length > 0) {
+      const padding = 50;
+      const bounds = networkNodes.reduce((acc, node) => ({
+        minX: Math.min(acc.minX, node.x - 50),
+        maxX: Math.max(acc.maxX, node.x + 50),
+        minY: Math.min(acc.minY, node.y - 50),
+        maxY: Math.max(acc.maxY, node.y + 50)
+      }), { 
+        minX: networkNodes[0].x, 
+        maxX: networkNodes[0].x, 
+        minY: networkNodes[0].y, 
+        maxY: networkNodes[0].y 
+      });
+
+      const svgWidth = networkSvgRef.current.clientWidth - padding * 2;
+      const svgHeight = networkSvgRef.current.clientHeight - padding * 2;
+      const graphWidth = bounds.maxX - bounds.minX;
+      const graphHeight = bounds.maxY - bounds.minY;
+      
+      const scale = Math.min(svgWidth / graphWidth, svgHeight / graphHeight, 2);
+      setNetworkZoom(scale);
+      setNetworkPan({
+        x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
+        y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
+      });
+    }
+  };
+
+  return (
+    <div 
+      className={`fixed inset-y-0 right-0 w-full md:w-3/4 lg:w-2/3 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
+        isOpen ? 'translate-x-0' : 'translate-x-full'
+      }`}
+      onMouseMove={handleNetworkMouseMove}
+      onMouseUp={handleNetworkMouseUp}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+        <h2 className="text-xl font-semibold text-gray-800">Network View</h2>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={fitNetwork}
+            className="p-2 rounded hover:bg-gray-200 transition-colors"
+            title="Fit to View"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 3h4v4" />
+              <path d="M3 21h4v-4" />
+              <path d="M21 3h-4v4" />
+              <path d="M21 21h-4v-4" />
+              <circle cx="12" cy="12" r="1" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            className="p-2 rounded hover:bg-gray-200 transition-colors"
+            title="Close"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Network SVG */}
+      <div className="h-full overflow-hidden">
+        <svg
+          ref={networkSvgRef}
+          width="100%"
+          height="100%"
+          onWheel={handleNetworkWheel}
+          onMouseDown={handleNetworkMouseDown}
+          style={{ cursor: isDraggingNetwork ? 'grabbing' : 'grab' }}
+          className="bg-gray-50"
+        >
+          <g transform={`translate(${networkPan.x}, ${networkPan.y}) scale(${networkZoom})`}>
+            {/* Render edges */}
+            {networkLinks.map((link, idx) => {
+              const sourceNode = networkNodes.find(n => n.id === link.source.id || n.id === link.source);
+              const targetNode = networkNodes.find(n => n.id === link.target.id || n.id === link.target);
+              if (!sourceNode || !targetNode) return null;
+              
+              return (
+                <line
+                  key={`network-link-${idx}`}
+                  x1={sourceNode.x}
+                  y1={sourceNode.y}
+                  x2={targetNode.x}
+                  y2={targetNode.y}
+                  stroke="#94a3b8"
+                  strokeWidth="2"
+                  opacity="0.6"
+                />
+              );
+            })}
+            
+            {/* Render nodes */}
+            {networkNodes.map(node => (
+              <g key={`network-node-${node.id}`} transform={`translate(${node.x},${node.y})`}>
+                <circle
+                  r="40"
+                  fill={node.isActive ? '#3b82f6' : '#fff'}
+                  stroke={node.isActive ? '#1d4ed8' : '#64748b'}
+                  strokeWidth="2"
+                />
+                {node.thumbnail && (
+                  <image
+                    x="-35"
+                    y="-35"
+                    width="70"
+                    height="70"
+                    href={node.thumbnail}
+                    clipPath="url(#network-circle-clip)"
+                    preserveAspectRatio="xMidYMid slice"
+                  />
+                )}
+                <text
+                  textAnchor="middle"
+                  dy="55"
+                  fill="#1f2937"
+                  className="text-sm font-medium"
+                >
+                  {node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title}
+                </text>
+              </g>
+            ))}
+          </g>
+          
+          <defs>
+            <clipPath id="network-circle-clip">
+              <circle r="35" />
+            </clipPath>
+          </defs>
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 const styles = `
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-pl {
+    padding-left: env(safe-area-inset-left);
+  }
+  .safe-area-pr {
+    padding-right: env(safe-area-inset-right);
+  }
   .wiki-content {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
@@ -237,9 +505,16 @@ const styles = `
 `;
 
 // Node component with enhanced styling
-const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick }) => {
+const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, isMobile = false }) => {
   const safeId = `circle-clip-${title.replace(/[^a-zA-Z0-9]/g, '-')}`;
   const gradientId = `node-gradient-${safeId}`;
+  
+  // Scale everything down by 50% for mobile
+  const scale = isMobile ? 0.5 : 1;
+  const radius = 40 * scale;
+  const outerRadius = 45 * scale;
+  const imageSize = 80 * scale;
+  const imageOffset = -40 * scale;
   
   return (
     // <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
@@ -297,7 +572,7 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
 <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
   <defs>
     <clipPath id={safeId}>
-      <circle r="40" /> {/* Increased radius */}
+      <circle r={radius} />
     </clipPath>
     <radialGradient id={gradientId}>
       <stop offset="0%" stopColor={isActive ? '#3b82f6' : '#fff'} />
@@ -305,19 +580,19 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
     </radialGradient>
   </defs>
   <circle 
-    r="45"  
+    r={outerRadius}  
     fill={`url(#${gradientId})`}
     stroke={suggested ? '#94a3b8' : (isActive ? '#1d4ed8' : '#64748b')}
-    strokeWidth="1"
+    strokeWidth={scale}
     style={suggested ? { opacity: 0.7 } : {}}
     className="transition-all duration-200 ease-in-out"
   />
   {thumbnail && (
     <image
-      x="-40"   
-      y="-40"
-      width="100"  
-      height="100"
+      x={imageOffset}   
+      y={imageOffset}
+      width={imageSize}  
+      height={imageSize}
       href={thumbnail}
       clipPath={`url(#${safeId})`}
       preserveAspectRatio="xMidYMid slice"
@@ -396,14 +671,14 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
 };
 
 // Edge component with arrows removed
-const EdgeComponent = ({ startX, startY, endX, endY, suggested }) => (
+const EdgeComponent = ({ startX, startY, endX, endY, suggested, isMobile = false }) => (
   <line 
     x1={startX} 
     y1={startY} 
     x2={endX} 
     y2={endY} 
     stroke={suggested ? '#94a3b8' : '#64748b'} 
-    strokeWidth="2"
+    strokeWidth={isMobile ? "1" : "2"}
     style={suggested ? { strokeOpacity: 0.5, strokeDasharray: '4 4' } : {}}
     className="transition-all duration-200"
   />
@@ -438,6 +713,8 @@ const WikiNavTree = () => {
   // State declarations
   const [isTreePaneCollapsed, setIsTreePaneCollapsed] = useState(false);
   const [scrollY, setScrollY] = useState(0); //scroll tracking for header
+  const [isSearchBarVisible, setIsSearchBarVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
   const viewport = useViewportSize();
   const isMobile = viewport.width < 768;
 
@@ -449,7 +726,6 @@ const WikiNavTree = () => {
   const [wikiContent, setWikiContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [leftPaneWidth, setLeftPaneWidth] = useState(
@@ -462,11 +738,35 @@ const WikiNavTree = () => {
   const [isSplayed, setIsSplayed] = useState(false);
   const [showSeeAlso, setShowSeeAlso] = useState(false);
   const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
+  const [showNetworkView, setShowNetworkView] = useState(false);
 
   const [treePaneMode, setTreePaneMode] = useState('normal'); // 'collapsed', 'normal', 'expanded'
 
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
+
+  // Refs - declare before using in hooks
+  const containerRef = useRef(null);
+  const svgRef = useRef(null);
+  const simulationRef = useRef(null);
+
+  // Smart panning with boundaries
+  const { pan, setPan, panLimits } = useSmartPanning(pages, zoom, svgRef, isMobile);
+
+  // Pull to refresh functionality for mobile
+  const { isRefreshing: isPullRefreshing, pullDistance, bindRefresh } = usePullToRefresh(
+    async () => {
+      // Refresh current page or go to home page
+      if (activePage) {
+        const content = await fetchWikiContent(activePage.title);
+        if (content) {
+          setWikiContent(content);
+        }
+      } else {
+        await fetchHomePage();
+      }
+    }
+  );
 
   const handleTouchStartSwipe = (e) => {
     setTouchStart(e.touches[0].clientX);
@@ -484,11 +784,6 @@ const WikiNavTree = () => {
       }
     }
   };
-
-  // Refs
-  const containerRef = useRef(null);
-  const svgRef = useRef(null);
-  const simulationRef = useRef(null);
 
   const [isLoadingShared, setIsLoadingShared] = useState(false);
 
@@ -513,6 +808,26 @@ const WikiNavTree = () => {
     } catch (err) {
       console.error('Share creation failed:', err);
     }
+  };
+
+  // Handle wiki content scroll for search bar visibility
+  const handleWikiScroll = (e) => {
+    if (!isMobile) return;
+    
+    const currentScrollY = e.target.scrollTop;
+    const scrollThreshold = 20; // Minimum scroll distance to trigger hide/show
+    
+    if (Math.abs(currentScrollY - lastScrollY) < scrollThreshold) return;
+    
+    if (currentScrollY > lastScrollY && currentScrollY > 100) {
+      // Scrolling down and past 100px - hide search bar
+      setIsSearchBarVisible(false);
+    } else if (currentScrollY < lastScrollY) {
+      // Scrolling up - show search bar
+      setIsSearchBarVisible(true);
+    }
+    
+    setLastScrollY(currentScrollY);
   };
   
 
@@ -859,17 +1174,44 @@ const WikiNavTree = () => {
       const graphWidth = bounds.maxX - bounds.minX;
       const graphHeight = bounds.maxY - bounds.minY;
       const scale = Math.min(svgWidth / graphWidth, svgHeight / graphHeight, 1.5);
+      
       setZoom(scale);
-      setPan({
-        x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
-        y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
-      });
+      
+      if (isMobile) {
+        // Mobile: Keep default zoom and position root at top-left with padding
+        setZoom(1); // Reset to default zoom instead of calculated scale
+        const rootNode = pages[0];
+        if (rootNode) {
+          setPan({
+            x: padding - rootNode.x,
+            y: padding - rootNode.y
+          });
+        }
+      } else {
+        // Desktop: Center the graph
+        setPan({
+          x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
+          y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
+        });
+      }
     }
   };
 
   const handleCenterGraph = () => {
     if (pages.length > 0) {
-      setPan({ x: 50, y: 50 });
+      if (isMobile) {
+        // Mobile: Reset to root at top-left
+        const rootNode = pages[0];
+        if (rootNode) {
+          setPan({
+            x: 50 - rootNode.x,
+            y: 50 - rootNode.y
+          });
+        }
+      } else {
+        // Desktop: Center view
+        setPan({ x: 50, y: 50 });
+      }
       setZoom(1);
     }
   };
@@ -882,8 +1224,11 @@ const WikiNavTree = () => {
     // First, create a mapping of nodes and their levels
     const levels = new Map();
     const processed = new Set();
-    const NODE_SIZE = 60; // diameter of node including padding
-    const LEVEL_HEIGHT = 120; // vertical spacing between levels
+    
+    // Mobile vs Desktop spacing
+    const isMobile = viewport.width < 768;
+    const NODE_SIZE = isMobile ? 80 : 60; // 50% smaller for mobile
+    const LEVEL_SPACING = isMobile ? 60 : 120; // 50% smaller mobile edge spacing
     
     // Step 1: Assign levels to all nodes (like git branch depth)
     const assignLevels = (nodeId, level = 0) => {
@@ -904,34 +1249,80 @@ const WikiNavTree = () => {
     };
   
     // Start with root node
-    assignLevels(pages[0].id);
+    if (pages.length > 0) {
+      assignLevels(pages[0].id);
+    }
+    
+    // Handle any orphaned nodes that weren't reached from root
+    pages.forEach(page => {
+      if (!processed.has(page.id)) {
+        // Try to find its proper level based on parent
+        const parentId = findParentId(page.id);
+        if (parentId && processed.has(parentId)) {
+          // Find parent's level
+          let parentLevel = 0;
+          for (const [level, nodes] of levels.entries()) {
+            if (nodes.includes(parentId)) {
+              parentLevel = level;
+              break;
+            }
+          }
+          assignLevels(page.id, parentLevel + 1);
+        } else {
+          // Orphaned node - put at level 0
+          assignLevels(page.id, 0);
+        }
+      }
+    });
   
     // Step 2: Position nodes by level, adjusting for overlaps
     const newPositions = new Map();
     
     // Process each level
-    Array.from(levels.keys()).forEach(level => {
+    Array.from(levels.keys()).sort((a, b) => a - b).forEach(level => {
       const nodesInLevel = levels.get(level);
-      const y = level * LEVEL_HEIGHT + 50; // vertical position
       
       // First pass: position nodes based on parent or evenly
       nodesInLevel.forEach((nodeId, index) => {
         const node = pages.find(p => p.id === nodeId);
-        let x;
+        let x, y;
         
-        // If node has parent, position relative to parent
-        if (level > 0) {
-          const parentId = findParentId(nodeId);
-          if (parentId && newPositions.has(parentId)) {
-            const parentX = newPositions.get(parentId).x;
-            const siblingCount = pages.find(p => p.id === parentId).children.length;
-            const siblingIndex = pages.find(p => p.id === parentId).children.indexOf(nodeId);
-            x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE * 1.5;
+        if (isMobile) {
+          // Mobile: horizontal flow (x increases with level, y varies for siblings)
+          x = level * LEVEL_SPACING + 50;
+          
+          if (level > 0) {
+            const parentId = findParentId(nodeId);
+            if (parentId && newPositions.has(parentId)) {
+              const parentY = newPositions.get(parentId).y;
+              const parent = pages.find(p => p.id === parentId);
+              const siblingCount = parent ? parent.children.length : 1;
+              const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
+              y = parentY + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE;
+            } else {
+              y = (index + 0.5) * NODE_SIZE;
+            }
+          } else {
+            y = (index + 0.5) * NODE_SIZE;
+          }
+        } else {
+          // Desktop: vertical flow (y increases with level, x varies for siblings)
+          y = level * LEVEL_SPACING + 50;
+          
+          if (level > 0) {
+            const parentId = findParentId(nodeId);
+            if (parentId && newPositions.has(parentId)) {
+              const parentX = newPositions.get(parentId).x;
+              const parent = pages.find(p => p.id === parentId);
+              const siblingCount = parent ? parent.children.length : 1;
+              const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
+              x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE * 1.5;
+            } else {
+              x = (index + 0.5) * NODE_SIZE * 1.5;
+            }
           } else {
             x = (index + 0.5) * NODE_SIZE * 1.5;
           }
-        } else {
-          x = (index + 0.5) * NODE_SIZE * 1.5;
         }
         
         newPositions.set(nodeId, { x, y });
@@ -943,41 +1334,79 @@ const WikiNavTree = () => {
         hasOverlap = false;
         nodesInLevel.forEach((nodeId, i) => {
           const pos1 = newPositions.get(nodeId);
+          if (!pos1) return;
           
           nodesInLevel.forEach((otherId, j) => {
             if (i >= j) return;
             
             const pos2 = newPositions.get(otherId);
-            const dx = pos2.x - pos1.x;
-            const distance = Math.abs(dx);
+            if (!pos2) return;
+            
+            let distance, moveDirection;
+            
+            if (isMobile) {
+              // Mobile: check Y distance (nodes are spread vertically)
+              const dy = pos2.y - pos1.y;
+              distance = Math.abs(dy);
+              moveDirection = 'y';
+            } else {
+              // Desktop: check X distance (nodes are spread horizontally)
+              const dx = pos2.x - pos1.x;
+              distance = Math.abs(dx);
+              moveDirection = 'x';
+            }
             
             if (distance < NODE_SIZE) {
               hasOverlap = true;
               const repulsion = (NODE_SIZE - distance) / 2;
-              const moveX = repulsion * Math.sign(dx);
               
-              newPositions.set(nodeId, {
-                ...pos1,
-                x: pos1.x - moveX
-              });
-              
-              newPositions.set(otherId, {
-                ...pos2,
-                x: pos2.x + moveX
-              });
+              if (moveDirection === 'y') {
+                const moveY = repulsion * Math.sign(pos2.y - pos1.y);
+                newPositions.set(nodeId, {
+                  ...pos1,
+                  y: pos1.y - moveY
+                });
+                newPositions.set(otherId, {
+                  ...pos2,
+                  y: pos2.y + moveY
+                });
+              } else {
+                const moveX = repulsion * Math.sign(pos2.x - pos1.x);
+                newPositions.set(nodeId, {
+                  ...pos1,
+                  x: pos1.x - moveX
+                });
+                newPositions.set(otherId, {
+                  ...pos2,
+                  x: pos2.x + moveX
+                });
+              }
             }
           });
         });
       } while (hasOverlap);
     });
     
-    // Apply new positions to pages
+    // Apply new positions to pages - ensure ALL pages get updated
     setPages(prevPages => 
-      prevPages.map(page => ({
-        ...page,
-        x: newPositions.get(page.id).x,
-        y: newPositions.get(page.id).y
-      }))
+      prevPages.map(page => {
+        const newPos = newPositions.get(page.id);
+        if (newPos) {
+          return {
+            ...page,
+            x: newPos.x,
+            y: newPos.y
+          };
+        } else {
+          // Fallback for any nodes that somehow weren't positioned
+          console.warn(`Node ${page.id} (${page.title}) was not positioned in compact layout`);
+          return {
+            ...page,
+            x: 50,
+            y: 50
+          };
+        }
+      })
     );
   };
   
@@ -987,51 +1416,73 @@ const WikiNavTree = () => {
     return parent ? parent.id : null;
   };
 
+  // Mobile-specific collision resolution
+  const resolveMobileCollisions = (pages) => {
+    const MIN_NODE_DISTANCE = 120; // Minimum distance between nodes
+    const updatedPages = [...pages];
+    
+    // Group nodes by x-levels (since mobile flows horizontally)
+    const xLevels = {};
+    updatedPages.forEach(page => {
+      const xLevel = Math.round(page.x / 50) * 50; // Round to nearest 50px
+      if (!xLevels[xLevel]) {
+        xLevels[xLevel] = [];
+      }
+      xLevels[xLevel].push(page);
+    });
+    
+    // Resolve collisions within each x-level
+    Object.values(xLevels).forEach(levelNodes => {
+      if (levelNodes.length <= 1) return;
+      
+      // Sort by y position
+      levelNodes.sort((a, b) => a.y - b.y);
+      
+      // Check for overlaps and fix them
+      for (let i = 1; i < levelNodes.length; i++) {
+        const prevNode = levelNodes[i - 1];
+        const currNode = levelNodes[i];
+        
+        const distance = currNode.y - prevNode.y;
+        if (distance < MIN_NODE_DISTANCE) {
+          // Move current node down to avoid overlap
+          const adjustment = MIN_NODE_DISTANCE - distance;
+          currNode.y += adjustment;
+          
+          // Recursively adjust subsequent nodes
+          for (let j = i + 1; j < levelNodes.length; j++) {
+            if (levelNodes[j].y - levelNodes[j - 1].y < MIN_NODE_DISTANCE) {
+              levelNodes[j].y = levelNodes[j - 1].y + MIN_NODE_DISTANCE;
+            }
+          }
+        }
+      }
+    });
+    
+    return updatedPages;
+  };
+
   const calculateNodePosition = (parentX, parentY, index, siblingCount, viewportWidth) => {
     // Make spacing responsive to viewport width
     const isMobile = viewportWidth < 768; // Mobile breakpoint
-    const baseNodeWidth = isMobile ? 70 : 100; // Smaller spacing on mobile
-    const baseLevelSpacing = isMobile ? 90 : 120;
-    
-    // Scale spacing based on viewport width
-    const nodeWidth = Math.min(baseNodeWidth, viewportWidth * 0.15);
-    const levelSpacing = Math.min(baseLevelSpacing, viewportWidth * 0.2);
     
     if (isMobile) {
-      // For mobile, switch X and Y coordinates for horizontal flow
+      // Mobile layout: horizontal flow (left to right)
+      const nodeWidth = Math.max(120, viewportWidth * 0.25); // Much wider spacing for mobile
+      const levelSpacing = Math.max(90, viewportWidth * 0.18); // Shorter edges (40% reduction)
+      
+      // For mobile, move right for each level, spread vertically for siblings
       const startY = parentY - ((siblingCount - 1) * nodeWidth) / 2;
       return { 
-        x: parentX + levelSpacing,  // Move right instead of down
-        y: startY + (index * nodeWidth)
+        x: parentX + levelSpacing,  // Move right for next level
+        y: startY + (index * nodeWidth) // Spread siblings vertically
       };
     } else {
-      // Desktop layout remains the same
+      // Desktop layout: vertical flow (top to bottom)
+      const nodeWidth = 100;
+      const levelSpacing = 120;
       const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
-    
       
-      // const same_parent = pages.filter(element => element.parent_id==activePage.id);
-      // if (same_parent.length!=0){
-      // const maxx = Math.max(...same_parent.map(obj => obj.x));
-      // var posx=maxx+nodeWidth;
-      // var posy=parentY+levelSpacing;
-      // }
-
-      var posx=startX+(index*nodeWidth)
-      var posy= parentY + levelSpacing 
-
-  //     pages.forEach((element, index) => {
-  // if ((Math.abs(element.x -posx)<nodeWidth) && (posy==element.y)){
-  //     posx=posx+nodeWidth
-  //   }
-  //       });
-
-
-
-  
-    return { 
-      x:posx,
-      y: posy
-    };
       return { 
         x: startX + (index * nodeWidth),
         y: parentY + levelSpacing 
@@ -1048,7 +1499,13 @@ const WikiNavTree = () => {
         const title = href.replace('/wiki/', '');
         if (!title.startsWith('File:') && !title.startsWith('Category:')) {
           const url = `https://en.wikipedia.org${href}`;
-          await loadNewPage({ title, url });
+          // Ensure activePage exists before loading new page
+          if (activePage) {
+            await loadNewPage({ title, url });
+          } else {
+            // If no active page, treat as initial load
+            await loadNewPage({ title, url, isInitialLoad: true });
+          }
         }
       }
     }
@@ -1122,8 +1579,11 @@ const WikiNavTree = () => {
   };
 
   const handleNodeClick = (page) => {
-    setActivePage(page);
-    setWikiContent(page.content);
+    // Only update if it's a different page
+    if (!activePage || activePage.id !== page.id) {
+      setActivePage(page);
+      setWikiContent(page.content);
+    }
   };
 
   const handleReset = async () => {
@@ -1204,17 +1664,9 @@ const WikiNavTree = () => {
     });
   };
 
-  // Toggle splay mode. When turning off, reapply the compact layout.
+  // Toggle network view panel
   const handleToggleSplay = () => {
-    if (isAnimating) return;
-    if (!isSplayed) {
-      applyForceDirectedLayout();
-      setIsSplayed(true);
-    } else {
-      simulationRef.current?.stop();
-      applyCompactLayout();
-      setIsSplayed(false);
-    }
+    setShowNetworkView(!showNetworkView);
   };
 
   // const handleTreePaneToggle = () => {
@@ -1293,84 +1745,24 @@ const WikiNavTree = () => {
           };
 
           setPages(prevPages => {
-            prevPages=[...prevPages,newPage];
-            const isMobile = viewport.width < 768; // Mobile breakpoint
-            const baseNodeWidth = isMobile ? 70 : 100; // Smaller spacing on mobile
-            const baseLevelSpacing = isMobile ? 90 : 120;
+            const updatedPages = [...prevPages, newPage];
             
-            // Scale spacing based on viewport width
-            const nodeWidth = Math.min(baseNodeWidth, viewport.width * 0.15);
-            const levelSpacing = Math.min(baseLevelSpacing, viewport.width * 0.2);
-            if (prevPages.length!=0){
-              let nodeWidth = 50;
-              let spacing = 0;
-          let maxy= Math.max(...prevPages.map(obj => obj.y));
-          let maxx= Math.max(...prevPages.map(obj => obj.x));
-          console.log("Maxx",maxx);
-          console.log("Maxy",maxy);
-           for(let i=170;i<=maxy;i=i+120)
-           {
-
-            let filteredArr = prevPages.filter(obj => obj.y == i);
-            if (filteredArr.length>1)
-            {
-
-              for(let j=50;j<=maxx;j=j+100)
-                {
-                 
-                  let index = prevPages
-                      .map((obj, ind) => ((obj.x === j) && (obj.y === i)) ? ind : -1)
-                      .filter(ind => ind !== -1);
-                  if (index.length==2){
-                    if (prevPages[index[0]].parent_id==prevPages[index[1]].parent_id){
-
-                      prevPages[index[1]].x=j+100;
-
-                    }
-                    else{
-
-                      let indexA = prevPages.findIndex(obj => obj.id === prevPages[index[0]].parent_id);
-                      let indexB = prevPages.findIndex(obj => obj.id === prevPages[index[1]].parent_id);
-                      if(indexB>indexA){
-
-                      prevPages[index[1]].x=j+100;
-
-                      }
-                      else{
-
-                        prevPages[index[0]].x=j+100;
-
-                      }
-
-                    }
-
-
-                  }
-               
-
-     
-                }
-            }
-        
-
-           }
-              
-              
-              
-          }
-
-
-
-
-            
-            const updatedPages = [...prevPages];
-
+            // Add parent-child relationship
             if (activePage) {
               const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
               if (activePageIndex !== -1) {
+                if (!updatedPages[activePageIndex].children) {
+                  updatedPages[activePageIndex].children = [];
+                }
                 updatedPages[activePageIndex].children.push(newPage.id);
               }
             }
+            
+            // Apply mobile-specific collision detection
+            if (viewport.width < 768) {
+              return resolveMobileCollisions(updatedPages);
+            }
+            
             return updatedPages;
           });
           setActivePage(newPage);
@@ -1453,7 +1845,8 @@ const WikiNavTree = () => {
             startX={page.x} 
             startY={page.y} 
             endX={child.x} 
-            endY={child.y} 
+            endY={child.y}
+            isMobile={isMobile} 
           />
         );
       }).filter(Boolean)
@@ -1468,7 +1861,8 @@ const WikiNavTree = () => {
         startX={activePage.x} 
         startY={activePage.y} 
         endX={node.x} 
-        endY={node.y} 
+        endY={node.y}
+        isMobile={isMobile} 
         suggested={true} 
       />
     ));
@@ -1482,6 +1876,7 @@ const WikiNavTree = () => {
         y={node.y} 
         title={node.title} 
         suggested={true}
+        isMobile={isMobile}
         onClick={() => {
           loadNewPage({ title: node.title, url: node.url });
           setSeeAlsoNodes([]);
@@ -1541,11 +1936,23 @@ const WikiNavTree = () => {
 
   
   return (
-    <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
+    <div 
+      ref={containerRef} 
+      className={`flex flex-col h-screen bg-slate-50 ${isMobile ? 'safe-area-pt' : ''}`}
+      {...(isMobile ? bindRefresh : {})}
+    >
       <style>{styles}</style>
       
+      {/* Pull to Refresh Indicator */}
+      {isMobile && (
+        <PullToRefresh 
+          pullDistance={pullDistance}
+          isRefreshing={isPullRefreshing}
+        />
+      )}
       
-      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
+      
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col pt-16' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
         className="relative gradient-bg border-r border-gray-200" 
@@ -1554,7 +1961,7 @@ const WikiNavTree = () => {
           height: isMobile
             ? treePaneMode === 'collapsed'
               ? '0.5rem'
-              : '50%'
+              : '21%'
             : '100%',
           transition: 'all 0.3s ease-in-out',
           position: 'relative',
@@ -1569,7 +1976,8 @@ const WikiNavTree = () => {
 
 
           {/* Only render tree content when not collapsed */}
-          {/* Header always visible */}
+          {/* Header - hidden on mobile */}
+          {!isMobile && (
           <div 
             className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" 
             style={{ 
@@ -1593,24 +2001,32 @@ const WikiNavTree = () => {
               <button
                 onClick={handleFitGraph}
                 className="toolbar-button"
-                title="Fit Graph"
+                title="Fit to View"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <circle cx="12" cy="12" r="3"/>
-                  <line x1="12" y1="3" x2="12" y2="9"/>
-                  <line x1="12" y1="15" x2="12" y2="21"/>
-                  <line x1="3" y1="12" x2="9" y2="12"/>
-                  <line x1="15" y1="12" x2="21" y2="12"/>
+                  {/* Frame corners */}
+                  <path d="M3 3h4v4" />
+                  <path d="M3 21h4v-4" />
+                  <path d="M21 3h-4v4" />
+                  <path d="M21 21h-4v-4" />
+                  {/* Center dot */}
+                  <circle cx="12" cy="12" r="1" fill="currentColor" />
                 </svg>
               </button>
               <button
                 onClick={handleToggleSplay}
-                className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
-                title="Splay Tree"
-                disabled={isAnimating}
+                className={`toolbar-button ${showNetworkView ? 'active' : ''}`}
+                title="Network View"
               >
-                {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {/* Network/Graph icon */}
+                  <circle cx="12" cy="5" r="3" />
+                  <circle cx="5" cy="19" r="3" />
+                  <circle cx="19" cy="19" r="3" />
+                  <line x1="12" y1="8" x2="5" y2="16" />
+                  <line x1="12" y1="8" x2="19" y2="16" />
+                  <line x1="8" y1="19" x2="16" y2="19" />
+                </svg>
               </button>
               <button
                 onClick={() => setShowSeeAlso(prev => !prev)} 
@@ -1635,6 +2051,7 @@ const WikiNavTree = () => {
               </button>
             </div>
           </div>
+          )}
 
 {/* svgGraph */}
 
@@ -1654,6 +2071,7 @@ const WikiNavTree = () => {
                   onTouchEnd={() => lastPinchDistance.current = null}
                   style={{ 
                     cursor: isDragging ? 'grabbing' : 'grab',
+                    fontSize: isMobile ? '0.6rem' : 'inherit',
                     touchAction: 'none'
                   }}
                   className="transition-all duration-200"
@@ -1669,6 +2087,7 @@ const WikiNavTree = () => {
                         title={page.title} 
                         thumbnail={page.thumbnail} 
                         isActive={activePage && page.id === activePage.id} 
+                        isMobile={isMobile}
                         onClick={() => handleNodeClick(page)} 
                       />
                     ))}
@@ -1696,9 +2115,8 @@ const WikiNavTree = () => {
           style={{ 
             height: isMobile 
               ? isTreePaneCollapsed 
-                // ? 'calc(100% - 0.5rem)'
-                ? 'calc(100% - 4rem)'  // Adjust for header height
-                : '50%' 
+                ? 'calc(100% - 4rem)'  // Adjust for top nav height
+                : 'calc(79% - 4rem)' // 79% height minus top nav
               : '100%',
             minWidth: isMobile ? 'unset' : '400px',
             transition: 'all 0.3s ease-in-out'
@@ -1707,26 +2125,43 @@ const WikiNavTree = () => {
 
 
           
-            <NavigationBar 
-            handleBack={handleBack}
-            handleForward={handleForward}
-            historyIndex={historyIndex}
-            navigationHistory={navigationHistory}
-            handleSubmit={handleSubmit}
-            searchInput={searchInput}
-            handleInputChange={handleInputChange}
-            searchResults={searchResults}
-            loadNewPage={loadNewPage}
-            setSearchInput={setSearchInput}
-            setSearchResults={setSearchResults}
-          />
+            <div 
+              className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                isMobile 
+                  ? isSearchBarVisible 
+                    ? 'h-auto opacity-100' 
+                    : 'h-0 opacity-0'
+                  : ''
+              }`}
+              style={{
+                position: isMobile ? 'sticky' : 'static',
+                top: isMobile ? '0' : 'auto',
+                zIndex: isMobile ? '20' : 'auto',
+                backgroundColor: isMobile ? 'white' : 'transparent'
+              }}
+            >
+              <NavigationBar 
+                handleBack={handleBack}
+                handleForward={handleForward}
+                historyIndex={historyIndex}
+                navigationHistory={navigationHistory}
+                handleSubmit={handleSubmit}
+                searchInput={searchInput}
+                handleInputChange={handleInputChange}
+                searchResults={searchResults}
+                loadNewPage={loadNewPage}
+                setSearchInput={setSearchInput}
+                setSearchResults={setSearchResults}
+              />
+            </div>
   
           {/* Wiki content */}
           <div 
-            className="flex-1 border rounded-lg shadow-sm mx-4 mb-4 overflow-auto bg-white"
+            className={`flex-1 overflow-auto bg-white ${isMobile ? 'mx-0 mb-0 border-t' : 'mx-4 mb-1 border rounded-lg shadow-sm'}`}
             onClick={handleWikiLinkClick}
             onTouchStart={handleTouchStartSwipe}
             onTouchEnd={handleTouchEndSwipe}
+            onScroll={handleWikiScroll}
           >
             {loading ? (
               <div className="flex items-center justify-center h-full">
@@ -1735,7 +2170,7 @@ const WikiNavTree = () => {
             ) : (
               <div 
                 dangerouslySetInnerHTML={{ __html: wikiContent }} 
-                className="wiki-content prose max-w-none p-4" 
+                className={`wiki-content prose max-w-none ${isMobile ? 'p-2' : 'p-4'}`} 
               />
             )}
           </div>
@@ -1762,7 +2197,44 @@ const WikiNavTree = () => {
           <Discord size={20} />
         </a>
       </div>
+      
+      {/* Network View Panel */}
+      <NetworkViewPanel
+        isOpen={showNetworkView}
+        onClose={() => setShowNetworkView(false)}
+        pages={pages}
+        activePage={activePage}
+      />
+      
       {isLoadingShared && <LoadingBunny />}
+      
+      {/* Mobile Scroll Hints */}
+      {isMobile && (
+        <MobileScrollHints
+          pan={pan}
+          panLimits={panLimits}
+          zoom={zoom}
+        />
+      )}
+      
+      {/* Mobile Top Navigation */}
+      {isMobile && (
+        <MobileBottomNav
+          onBack={handleBack}
+          onHome={handleReset}
+          onNetworkView={handleToggleSplay}
+          onShare={handleShare}
+          onMenu={() => handleTreePaneToggle()}
+          onReset={handleReset}
+          onFitGraph={handleFitGraph}
+          onExport={exportTree}
+          canGoBack={historyIndex > 0}
+          showNetworkView={showNetworkView}
+        />
+      )}
+      
+      {/* PWA Install Prompt */}
+      <PWAInstallPrompt />
     </div>
   );
 };
