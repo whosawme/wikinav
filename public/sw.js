@@ -69,10 +69,10 @@ self.addEventListener('fetch', (event) => {
               if (cachedResponse) {
                 console.log('Service Worker: Serving Wikipedia API from cache:', request.url);
                 // Serve from cache, but also update in background
-                fetch(request)
+                fetch(request.clone())
                   .then((fetchResponse) => {
                     if (fetchResponse.ok) {
-                      cache.put(request, fetchResponse.clone());
+                      cache.put(request.clone(), fetchResponse.clone());
                     }
                   })
                   .catch((error) => {
@@ -132,9 +132,11 @@ self.addEventListener('fetch', (event) => {
                 const cacheName = STATIC_ASSETS.includes(url.pathname) ? 
                   STATIC_CACHE_NAME : DYNAMIC_CACHE_NAME;
                 
+                // Clone the response before using it
+                const responseToCache = fetchResponse.clone();
                 caches.open(cacheName)
                   .then((cache) => {
-                    cache.put(request, fetchResponse.clone());
+                    cache.put(request, responseToCache);
                   });
               }
               return fetchResponse;

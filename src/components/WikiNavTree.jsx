@@ -9,6 +9,8 @@ import PWAInstallPrompt from './PWAInstallPrompt';
 import MobileBottomNav from './MobileBottomNav';
 import PullToRefresh from './PullToRefresh';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { useSmartPanning } from '../hooks/useSmartPanning';
+import MobileScrollHints from './MobileScrollHints';
 
     
 const NavigationBar = ({ 
@@ -503,9 +505,16 @@ const styles = `
 `;
 
 // Node component with enhanced styling
-const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick }) => {
+const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, isMobile = false }) => {
   const safeId = `circle-clip-${title.replace(/[^a-zA-Z0-9]/g, '-')}`;
   const gradientId = `node-gradient-${safeId}`;
+  
+  // Scale everything down by 50% for mobile
+  const scale = isMobile ? 0.5 : 1;
+  const radius = 40 * scale;
+  const outerRadius = 45 * scale;
+  const imageSize = 80 * scale;
+  const imageOffset = -40 * scale;
   
   return (
     // <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
@@ -563,7 +572,7 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
 <g transform={`translate(${x},${y})`} onClick={onClick} style={{ cursor: 'pointer' }} className="transition-transform duration-200 ease-in-out">
   <defs>
     <clipPath id={safeId}>
-      <circle r="40" /> {/* Increased radius */}
+      <circle r={radius} />
     </clipPath>
     <radialGradient id={gradientId}>
       <stop offset="0%" stopColor={isActive ? '#3b82f6' : '#fff'} />
@@ -571,19 +580,19 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
     </radialGradient>
   </defs>
   <circle 
-    r="45"  
+    r={outerRadius}  
     fill={`url(#${gradientId})`}
     stroke={suggested ? '#94a3b8' : (isActive ? '#1d4ed8' : '#64748b')}
-    strokeWidth="1"
+    strokeWidth={scale}
     style={suggested ? { opacity: 0.7 } : {}}
     className="transition-all duration-200 ease-in-out"
   />
   {thumbnail && (
     <image
-      x="-40"   
-      y="-40"
-      width="100"  
-      height="100"
+      x={imageOffset}   
+      y={imageOffset}
+      width={imageSize}  
+      height={imageSize}
       href={thumbnail}
       clipPath={`url(#${safeId})`}
       preserveAspectRatio="xMidYMid slice"
@@ -662,14 +671,14 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick })
 };
 
 // Edge component with arrows removed
-const EdgeComponent = ({ startX, startY, endX, endY, suggested }) => (
+const EdgeComponent = ({ startX, startY, endX, endY, suggested, isMobile = false }) => (
   <line 
     x1={startX} 
     y1={startY} 
     x2={endX} 
     y2={endY} 
     stroke={suggested ? '#94a3b8' : '#64748b'} 
-    strokeWidth="2"
+    strokeWidth={isMobile ? "1" : "2"}
     style={suggested ? { strokeOpacity: 0.5, strokeDasharray: '4 4' } : {}}
     className="transition-all duration-200"
   />
@@ -704,6 +713,8 @@ const WikiNavTree = () => {
   // State declarations
   const [isTreePaneCollapsed, setIsTreePaneCollapsed] = useState(false);
   const [scrollY, setScrollY] = useState(0); //scroll tracking for header
+  const [isSearchBarVisible, setIsSearchBarVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
   const viewport = useViewportSize();
   const isMobile = viewport.width < 768;
 
@@ -715,7 +726,6 @@ const WikiNavTree = () => {
   const [wikiContent, setWikiContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [leftPaneWidth, setLeftPaneWidth] = useState(
@@ -734,6 +744,14 @@ const WikiNavTree = () => {
 
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
+
+  // Refs - declare before using in hooks
+  const containerRef = useRef(null);
+  const svgRef = useRef(null);
+  const simulationRef = useRef(null);
+
+  // Smart panning with boundaries
+  const { pan, setPan, panLimits } = useSmartPanning(pages, zoom, svgRef, isMobile);
 
   // Pull to refresh functionality for mobile
   const { isRefreshing: isPullRefreshing, pullDistance, bindRefresh } = usePullToRefresh(
@@ -767,11 +785,6 @@ const WikiNavTree = () => {
     }
   };
 
-  // Refs
-  const containerRef = useRef(null);
-  const svgRef = useRef(null);
-  const simulationRef = useRef(null);
-
   const [isLoadingShared, setIsLoadingShared] = useState(false);
 
   const handleShare = () => {
@@ -795,6 +808,26 @@ const WikiNavTree = () => {
     } catch (err) {
       console.error('Share creation failed:', err);
     }
+  };
+
+  // Handle wiki content scroll for search bar visibility
+  const handleWikiScroll = (e) => {
+    if (!isMobile) return;
+    
+    const currentScrollY = e.target.scrollTop;
+    const scrollThreshold = 20; // Minimum scroll distance to trigger hide/show
+    
+    if (Math.abs(currentScrollY - lastScrollY) < scrollThreshold) return;
+    
+    if (currentScrollY > lastScrollY && currentScrollY > 100) {
+      // Scrolling down and past 100px - hide search bar
+      setIsSearchBarVisible(false);
+    } else if (currentScrollY < lastScrollY) {
+      // Scrolling up - show search bar
+      setIsSearchBarVisible(true);
+    }
+    
+    setLastScrollY(currentScrollY);
   };
   
 
@@ -1141,17 +1174,43 @@ const WikiNavTree = () => {
       const graphWidth = bounds.maxX - bounds.minX;
       const graphHeight = bounds.maxY - bounds.minY;
       const scale = Math.min(svgWidth / graphWidth, svgHeight / graphHeight, 1.5);
+      
       setZoom(scale);
-      setPan({
-        x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
-        y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
-      });
+      
+      if (isMobile) {
+        // Mobile: Position root at top-left with padding
+        const rootNode = pages[0];
+        if (rootNode) {
+          setPan({
+            x: padding - (rootNode.x * scale),
+            y: padding - (rootNode.y * scale)
+          });
+        }
+      } else {
+        // Desktop: Center the graph
+        setPan({
+          x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
+          y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
+        });
+      }
     }
   };
 
   const handleCenterGraph = () => {
     if (pages.length > 0) {
-      setPan({ x: 50, y: 50 });
+      if (isMobile) {
+        // Mobile: Reset to root at top-left
+        const rootNode = pages[0];
+        if (rootNode) {
+          setPan({
+            x: 50 - rootNode.x,
+            y: 50 - rootNode.y
+          });
+        }
+      } else {
+        // Desktop: Center view
+        setPan({ x: 50, y: 50 });
+      }
       setZoom(1);
     }
   };
@@ -1164,8 +1223,11 @@ const WikiNavTree = () => {
     // First, create a mapping of nodes and their levels
     const levels = new Map();
     const processed = new Set();
-    const NODE_SIZE = 60; // diameter of node including padding
-    const LEVEL_HEIGHT = 120; // vertical spacing between levels
+    
+    // Mobile vs Desktop spacing
+    const isMobile = viewport.width < 768;
+    const NODE_SIZE = isMobile ? 80 : 60; // 50% smaller for mobile
+    const LEVEL_SPACING = isMobile ? 60 : 120; // 50% smaller mobile edge spacing
     
     // Step 1: Assign levels to all nodes (like git branch depth)
     const assignLevels = (nodeId, level = 0) => {
@@ -1218,27 +1280,48 @@ const WikiNavTree = () => {
     // Process each level
     Array.from(levels.keys()).sort((a, b) => a - b).forEach(level => {
       const nodesInLevel = levels.get(level);
-      const y = level * LEVEL_HEIGHT + 50; // vertical position
       
       // First pass: position nodes based on parent or evenly
       nodesInLevel.forEach((nodeId, index) => {
         const node = pages.find(p => p.id === nodeId);
-        let x;
+        let x, y;
         
-        // If node has parent, position relative to parent
-        if (level > 0) {
-          const parentId = findParentId(nodeId);
-          if (parentId && newPositions.has(parentId)) {
-            const parentX = newPositions.get(parentId).x;
-            const parent = pages.find(p => p.id === parentId);
-            const siblingCount = parent ? parent.children.length : 1;
-            const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
-            x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE * 1.5;
+        if (isMobile) {
+          // Mobile: horizontal flow (x increases with level, y varies for siblings)
+          x = level * LEVEL_SPACING + 50;
+          
+          if (level > 0) {
+            const parentId = findParentId(nodeId);
+            if (parentId && newPositions.has(parentId)) {
+              const parentY = newPositions.get(parentId).y;
+              const parent = pages.find(p => p.id === parentId);
+              const siblingCount = parent ? parent.children.length : 1;
+              const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
+              y = parentY + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE;
+            } else {
+              y = (index + 0.5) * NODE_SIZE;
+            }
+          } else {
+            y = (index + 0.5) * NODE_SIZE;
+          }
+        } else {
+          // Desktop: vertical flow (y increases with level, x varies for siblings)
+          y = level * LEVEL_SPACING + 50;
+          
+          if (level > 0) {
+            const parentId = findParentId(nodeId);
+            if (parentId && newPositions.has(parentId)) {
+              const parentX = newPositions.get(parentId).x;
+              const parent = pages.find(p => p.id === parentId);
+              const siblingCount = parent ? parent.children.length : 1;
+              const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
+              x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE * 1.5;
+            } else {
+              x = (index + 0.5) * NODE_SIZE * 1.5;
+            }
           } else {
             x = (index + 0.5) * NODE_SIZE * 1.5;
           }
-        } else {
-          x = (index + 0.5) * NODE_SIZE * 1.5;
         }
         
         newPositions.set(nodeId, { x, y });
@@ -1258,23 +1341,45 @@ const WikiNavTree = () => {
             const pos2 = newPositions.get(otherId);
             if (!pos2) return;
             
-            const dx = pos2.x - pos1.x;
-            const distance = Math.abs(dx);
+            let distance, moveDirection;
+            
+            if (isMobile) {
+              // Mobile: check Y distance (nodes are spread vertically)
+              const dy = pos2.y - pos1.y;
+              distance = Math.abs(dy);
+              moveDirection = 'y';
+            } else {
+              // Desktop: check X distance (nodes are spread horizontally)
+              const dx = pos2.x - pos1.x;
+              distance = Math.abs(dx);
+              moveDirection = 'x';
+            }
             
             if (distance < NODE_SIZE) {
               hasOverlap = true;
               const repulsion = (NODE_SIZE - distance) / 2;
-              const moveX = repulsion * Math.sign(dx);
               
-              newPositions.set(nodeId, {
-                ...pos1,
-                x: pos1.x - moveX
-              });
-              
-              newPositions.set(otherId, {
-                ...pos2,
-                x: pos2.x + moveX
-              });
+              if (moveDirection === 'y') {
+                const moveY = repulsion * Math.sign(pos2.y - pos1.y);
+                newPositions.set(nodeId, {
+                  ...pos1,
+                  y: pos1.y - moveY
+                });
+                newPositions.set(otherId, {
+                  ...pos2,
+                  y: pos2.y + moveY
+                });
+              } else {
+                const moveX = repulsion * Math.sign(pos2.x - pos1.x);
+                newPositions.set(nodeId, {
+                  ...pos1,
+                  x: pos1.x - moveX
+                });
+                newPositions.set(otherId, {
+                  ...pos2,
+                  x: pos2.x + moveX
+                });
+              }
             }
           });
         });
@@ -1310,51 +1415,73 @@ const WikiNavTree = () => {
     return parent ? parent.id : null;
   };
 
+  // Mobile-specific collision resolution
+  const resolveMobileCollisions = (pages) => {
+    const MIN_NODE_DISTANCE = 120; // Minimum distance between nodes
+    const updatedPages = [...pages];
+    
+    // Group nodes by x-levels (since mobile flows horizontally)
+    const xLevels = {};
+    updatedPages.forEach(page => {
+      const xLevel = Math.round(page.x / 50) * 50; // Round to nearest 50px
+      if (!xLevels[xLevel]) {
+        xLevels[xLevel] = [];
+      }
+      xLevels[xLevel].push(page);
+    });
+    
+    // Resolve collisions within each x-level
+    Object.values(xLevels).forEach(levelNodes => {
+      if (levelNodes.length <= 1) return;
+      
+      // Sort by y position
+      levelNodes.sort((a, b) => a.y - b.y);
+      
+      // Check for overlaps and fix them
+      for (let i = 1; i < levelNodes.length; i++) {
+        const prevNode = levelNodes[i - 1];
+        const currNode = levelNodes[i];
+        
+        const distance = currNode.y - prevNode.y;
+        if (distance < MIN_NODE_DISTANCE) {
+          // Move current node down to avoid overlap
+          const adjustment = MIN_NODE_DISTANCE - distance;
+          currNode.y += adjustment;
+          
+          // Recursively adjust subsequent nodes
+          for (let j = i + 1; j < levelNodes.length; j++) {
+            if (levelNodes[j].y - levelNodes[j - 1].y < MIN_NODE_DISTANCE) {
+              levelNodes[j].y = levelNodes[j - 1].y + MIN_NODE_DISTANCE;
+            }
+          }
+        }
+      }
+    });
+    
+    return updatedPages;
+  };
+
   const calculateNodePosition = (parentX, parentY, index, siblingCount, viewportWidth) => {
     // Make spacing responsive to viewport width
     const isMobile = viewportWidth < 768; // Mobile breakpoint
-    const baseNodeWidth = isMobile ? 70 : 100; // Smaller spacing on mobile
-    const baseLevelSpacing = isMobile ? 90 : 120;
-    
-    // Scale spacing based on viewport width
-    const nodeWidth = Math.min(baseNodeWidth, viewportWidth * 0.15);
-    const levelSpacing = Math.min(baseLevelSpacing, viewportWidth * 0.2);
     
     if (isMobile) {
-      // For mobile, switch X and Y coordinates for horizontal flow
+      // Mobile layout: horizontal flow (left to right)
+      const nodeWidth = Math.max(120, viewportWidth * 0.25); // Much wider spacing for mobile
+      const levelSpacing = Math.max(90, viewportWidth * 0.18); // Shorter edges (40% reduction)
+      
+      // For mobile, move right for each level, spread vertically for siblings
       const startY = parentY - ((siblingCount - 1) * nodeWidth) / 2;
       return { 
-        x: parentX + levelSpacing,  // Move right instead of down
-        y: startY + (index * nodeWidth)
+        x: parentX + levelSpacing,  // Move right for next level
+        y: startY + (index * nodeWidth) // Spread siblings vertically
       };
     } else {
-      // Desktop layout remains the same
+      // Desktop layout: vertical flow (top to bottom)
+      const nodeWidth = 100;
+      const levelSpacing = 120;
       const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
-    
       
-      // const same_parent = pages.filter(element => element.parent_id==activePage.id);
-      // if (same_parent.length!=0){
-      // const maxx = Math.max(...same_parent.map(obj => obj.x));
-      // var posx=maxx+nodeWidth;
-      // var posy=parentY+levelSpacing;
-      // }
-
-      var posx=startX+(index*nodeWidth)
-      var posy= parentY + levelSpacing 
-
-  //     pages.forEach((element, index) => {
-  // if ((Math.abs(element.x -posx)<nodeWidth) && (posy==element.y)){
-  //     posx=posx+nodeWidth
-  //   }
-  //       });
-
-
-
-  
-    return { 
-      x:posx,
-      y: posy
-    };
       return { 
         x: startX + (index * nodeWidth),
         y: parentY + levelSpacing 
@@ -1371,7 +1498,13 @@ const WikiNavTree = () => {
         const title = href.replace('/wiki/', '');
         if (!title.startsWith('File:') && !title.startsWith('Category:')) {
           const url = `https://en.wikipedia.org${href}`;
-          await loadNewPage({ title, url });
+          // Ensure activePage exists before loading new page
+          if (activePage) {
+            await loadNewPage({ title, url });
+          } else {
+            // If no active page, treat as initial load
+            await loadNewPage({ title, url, isInitialLoad: true });
+          }
         }
       }
     }
@@ -1445,8 +1578,11 @@ const WikiNavTree = () => {
   };
 
   const handleNodeClick = (page) => {
-    setActivePage(page);
-    setWikiContent(page.content);
+    // Only update if it's a different page
+    if (!activePage || activePage.id !== page.id) {
+      setActivePage(page);
+      setWikiContent(page.content);
+    }
   };
 
   const handleReset = async () => {
@@ -1608,84 +1744,24 @@ const WikiNavTree = () => {
           };
 
           setPages(prevPages => {
-            prevPages=[...prevPages,newPage];
-            const isMobile = viewport.width < 768; // Mobile breakpoint
-            const baseNodeWidth = isMobile ? 70 : 100; // Smaller spacing on mobile
-            const baseLevelSpacing = isMobile ? 90 : 120;
+            const updatedPages = [...prevPages, newPage];
             
-            // Scale spacing based on viewport width
-            const nodeWidth = Math.min(baseNodeWidth, viewport.width * 0.15);
-            const levelSpacing = Math.min(baseLevelSpacing, viewport.width * 0.2);
-            if (prevPages.length!=0){
-              let nodeWidth = 50;
-              let spacing = 0;
-          let maxy= Math.max(...prevPages.map(obj => obj.y));
-          let maxx= Math.max(...prevPages.map(obj => obj.x));
-          console.log("Maxx",maxx);
-          console.log("Maxy",maxy);
-           for(let i=170;i<=maxy;i=i+120)
-           {
-
-            let filteredArr = prevPages.filter(obj => obj.y == i);
-            if (filteredArr.length>1)
-            {
-
-              for(let j=50;j<=maxx;j=j+100)
-                {
-                 
-                  let index = prevPages
-                      .map((obj, ind) => ((obj.x === j) && (obj.y === i)) ? ind : -1)
-                      .filter(ind => ind !== -1);
-                  if (index.length==2){
-                    if (prevPages[index[0]].parent_id==prevPages[index[1]].parent_id){
-
-                      prevPages[index[1]].x=j+100;
-
-                    }
-                    else{
-
-                      let indexA = prevPages.findIndex(obj => obj.id === prevPages[index[0]].parent_id);
-                      let indexB = prevPages.findIndex(obj => obj.id === prevPages[index[1]].parent_id);
-                      if(indexB>indexA){
-
-                      prevPages[index[1]].x=j+100;
-
-                      }
-                      else{
-
-                        prevPages[index[0]].x=j+100;
-
-                      }
-
-                    }
-
-
-                  }
-               
-
-     
-                }
-            }
-        
-
-           }
-              
-              
-              
-          }
-
-
-
-
-            
-            const updatedPages = [...prevPages];
-
+            // Add parent-child relationship
             if (activePage) {
               const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
               if (activePageIndex !== -1) {
+                if (!updatedPages[activePageIndex].children) {
+                  updatedPages[activePageIndex].children = [];
+                }
                 updatedPages[activePageIndex].children.push(newPage.id);
               }
             }
+            
+            // Apply mobile-specific collision detection
+            if (viewport.width < 768) {
+              return resolveMobileCollisions(updatedPages);
+            }
+            
             return updatedPages;
           });
           setActivePage(newPage);
@@ -1768,7 +1844,8 @@ const WikiNavTree = () => {
             startX={page.x} 
             startY={page.y} 
             endX={child.x} 
-            endY={child.y} 
+            endY={child.y}
+            isMobile={isMobile} 
           />
         );
       }).filter(Boolean)
@@ -1783,7 +1860,8 @@ const WikiNavTree = () => {
         startX={activePage.x} 
         startY={activePage.y} 
         endX={node.x} 
-        endY={node.y} 
+        endY={node.y}
+        isMobile={isMobile} 
         suggested={true} 
       />
     ));
@@ -1797,6 +1875,7 @@ const WikiNavTree = () => {
         y={node.y} 
         title={node.title} 
         suggested={true}
+        isMobile={isMobile}
         onClick={() => {
           loadNewPage({ title: node.title, url: node.url });
           setSeeAlsoNodes([]);
@@ -1872,7 +1951,7 @@ const WikiNavTree = () => {
       )}
       
       
-      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col pb-20' : ''} overflow-hidden`}>
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col pt-16' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
         className="relative gradient-bg border-r border-gray-200" 
@@ -1881,7 +1960,7 @@ const WikiNavTree = () => {
           height: isMobile
             ? treePaneMode === 'collapsed'
               ? '0.5rem'
-              : '50%'
+              : '30%'
             : '100%',
           transition: 'all 0.3s ease-in-out',
           position: 'relative',
@@ -1896,7 +1975,8 @@ const WikiNavTree = () => {
 
 
           {/* Only render tree content when not collapsed */}
-          {/* Header always visible */}
+          {/* Header - hidden on mobile */}
+          {!isMobile && (
           <div 
             className="sticky top-0 z-30 flex items-center justify-between p-4 border-b bg-white/90 backdrop-blur-sm shadow-sm" 
             style={{ 
@@ -1970,6 +2050,7 @@ const WikiNavTree = () => {
               </button>
             </div>
           </div>
+          )}
 
 {/* svgGraph */}
 
@@ -1989,6 +2070,7 @@ const WikiNavTree = () => {
                   onTouchEnd={() => lastPinchDistance.current = null}
                   style={{ 
                     cursor: isDragging ? 'grabbing' : 'grab',
+                    fontSize: isMobile ? '0.6rem' : 'inherit',
                     touchAction: 'none'
                   }}
                   className="transition-all duration-200"
@@ -2004,6 +2086,7 @@ const WikiNavTree = () => {
                         title={page.title} 
                         thumbnail={page.thumbnail} 
                         isActive={activePage && page.id === activePage.id} 
+                        isMobile={isMobile}
                         onClick={() => handleNodeClick(page)} 
                       />
                     ))}
@@ -2031,9 +2114,8 @@ const WikiNavTree = () => {
           style={{ 
             height: isMobile 
               ? isTreePaneCollapsed 
-                // ? 'calc(100% - 0.5rem)'
-                ? 'calc(100% - 4rem)'  // Adjust for header height
-                : '50%' 
+                ? 'calc(100% - 4rem)'  // Adjust for top nav height
+                : 'calc(70% - 4rem)' // 70% height minus top nav
               : '100%',
             minWidth: isMobile ? 'unset' : '400px',
             transition: 'all 0.3s ease-in-out'
@@ -2042,26 +2124,43 @@ const WikiNavTree = () => {
 
 
           
-            <NavigationBar 
-            handleBack={handleBack}
-            handleForward={handleForward}
-            historyIndex={historyIndex}
-            navigationHistory={navigationHistory}
-            handleSubmit={handleSubmit}
-            searchInput={searchInput}
-            handleInputChange={handleInputChange}
-            searchResults={searchResults}
-            loadNewPage={loadNewPage}
-            setSearchInput={setSearchInput}
-            setSearchResults={setSearchResults}
-          />
+            <div 
+              className={`transition-all duration-300 ease-in-out ${
+                isMobile 
+                  ? isSearchBarVisible 
+                    ? 'translate-y-0 opacity-100' 
+                    : '-translate-y-full opacity-0'
+                  : ''
+              }`}
+              style={{
+                position: isMobile ? 'sticky' : 'static',
+                top: isMobile ? '0' : 'auto',
+                zIndex: isMobile ? '20' : 'auto',
+                backgroundColor: isMobile ? 'white' : 'transparent'
+              }}
+            >
+              <NavigationBar 
+                handleBack={handleBack}
+                handleForward={handleForward}
+                historyIndex={historyIndex}
+                navigationHistory={navigationHistory}
+                handleSubmit={handleSubmit}
+                searchInput={searchInput}
+                handleInputChange={handleInputChange}
+                searchResults={searchResults}
+                loadNewPage={loadNewPage}
+                setSearchInput={setSearchInput}
+                setSearchResults={setSearchResults}
+              />
+            </div>
   
           {/* Wiki content */}
           <div 
-            className="flex-1 border rounded-lg shadow-sm mx-4 mb-4 overflow-auto bg-white"
+            className={`flex-1 overflow-auto bg-white ${isMobile ? 'mx-0 mb-0 border-t' : 'mx-4 mb-1 border rounded-lg shadow-sm'}`}
             onClick={handleWikiLinkClick}
             onTouchStart={handleTouchStartSwipe}
             onTouchEnd={handleTouchEndSwipe}
+            onScroll={handleWikiScroll}
           >
             {loading ? (
               <div className="flex items-center justify-center h-full">
@@ -2070,7 +2169,7 @@ const WikiNavTree = () => {
             ) : (
               <div 
                 dangerouslySetInnerHTML={{ __html: wikiContent }} 
-                className="wiki-content prose max-w-none p-4" 
+                className={`wiki-content prose max-w-none ${isMobile ? 'p-2' : 'p-4'}`} 
               />
             )}
           </div>
@@ -2108,7 +2207,16 @@ const WikiNavTree = () => {
       
       {isLoadingShared && <LoadingBunny />}
       
-      {/* Mobile Bottom Navigation */}
+      {/* Mobile Scroll Hints */}
+      {isMobile && (
+        <MobileScrollHints
+          pan={pan}
+          panLimits={panLimits}
+          zoom={zoom}
+        />
+      )}
+      
+      {/* Mobile Top Navigation */}
       {isMobile && (
         <MobileBottomNav
           onBack={handleBack}
@@ -2116,6 +2224,9 @@ const WikiNavTree = () => {
           onNetworkView={handleToggleSplay}
           onShare={handleShare}
           onMenu={() => handleTreePaneToggle()}
+          onReset={handleReset}
+          onFitGraph={handleFitGraph}
+          onExport={exportTree}
           canGoBack={historyIndex > 0}
           showNetworkView={showNetworkView}
         />
