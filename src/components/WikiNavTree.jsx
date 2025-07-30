@@ -5,6 +5,10 @@ import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, Chev
 import {ArrowLeft} from 'lucide-react';
 // import { graphToJSON } from './utils';
 import LoadingBunny from './LoadingBunny';
+import PWAInstallPrompt from './PWAInstallPrompt';
+import MobileBottomNav from './MobileBottomNav';
+import PullToRefresh from './PullToRefresh';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 
     
 const NavigationBar = ({ 
@@ -379,6 +383,18 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
 };
 
 const styles = `
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-pl {
+    padding-left: env(safe-area-inset-left);
+  }
+  .safe-area-pr {
+    padding-right: env(safe-area-inset-right);
+  }
   .wiki-content {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
@@ -718,6 +734,21 @@ const WikiNavTree = () => {
 
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
+
+  // Pull to refresh functionality for mobile
+  const { isRefreshing: isPullRefreshing, pullDistance, bindRefresh } = usePullToRefresh(
+    async () => {
+      // Refresh current page or go to home page
+      if (activePage) {
+        const content = await fetchWikiContent(activePage.title);
+        if (content) {
+          setWikiContent(content);
+        }
+      } else {
+        await fetchHomePage();
+      }
+    }
+  );
 
   const handleTouchStartSwipe = (e) => {
     setTouchStart(e.touches[0].clientX);
@@ -1825,11 +1856,23 @@ const WikiNavTree = () => {
 
   
   return (
-    <div ref={containerRef} className="flex flex-col h-screen bg-slate-50">
+    <div 
+      ref={containerRef} 
+      className={`flex flex-col h-screen bg-slate-50 ${isMobile ? 'safe-area-pt' : ''}`}
+      {...(isMobile ? bindRefresh : {})}
+    >
       <style>{styles}</style>
       
+      {/* Pull to Refresh Indicator */}
+      {isMobile && (
+        <PullToRefresh 
+          pullDistance={pullDistance}
+          isRefreshing={isPullRefreshing}
+        />
+      )}
       
-      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col' : ''} overflow-hidden`}>
+      
+      <div className={`flex flex-1 min-h-0 ${isMobile ? 'flex-col pb-20' : ''} overflow-hidden`}>
         {/* Left/Top pane: Graph view */}
         <div 
         className="relative gradient-bg border-r border-gray-200" 
@@ -2064,6 +2107,22 @@ const WikiNavTree = () => {
       />
       
       {isLoadingShared && <LoadingBunny />}
+      
+      {/* Mobile Bottom Navigation */}
+      {isMobile && (
+        <MobileBottomNav
+          onBack={handleBack}
+          onHome={handleReset}
+          onNetworkView={handleToggleSplay}
+          onShare={handleShare}
+          onMenu={() => handleTreePaneToggle()}
+          canGoBack={historyIndex > 0}
+          showNetworkView={showNetworkView}
+        />
+      )}
+      
+      {/* PWA Install Prompt */}
+      <PWAInstallPrompt />
     </div>
   );
 };
