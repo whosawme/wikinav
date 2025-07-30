@@ -65,10 +65,24 @@ export const usePullToRefresh = (onRefresh, threshold = 80) => {
     }
   }, [isRefreshing, isPulling]);
 
+  // Use useEffect to properly register non-passive event listeners
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Register touch events with passive: false to allow preventDefault
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isPulling, isRefreshing, pullDistance]); // Dependencies to ensure handlers have latest state
+
   const bindRefresh = {
-    onTouchStart: handleTouchStart,
-    onTouchMove: handleTouchMove,
-    onTouchEnd: handleTouchEnd,
     ref: containerRef
   };
 

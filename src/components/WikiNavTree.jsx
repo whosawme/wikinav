@@ -1178,12 +1178,13 @@ const WikiNavTree = () => {
       setZoom(scale);
       
       if (isMobile) {
-        // Mobile: Position root at top-left with padding
+        // Mobile: Keep default zoom and position root at top-left with padding
+        setZoom(1); // Reset to default zoom instead of calculated scale
         const rootNode = pages[0];
         if (rootNode) {
           setPan({
-            x: padding - (rootNode.x * scale),
-            y: padding - (rootNode.y * scale)
+            x: padding - rootNode.x,
+            y: padding - rootNode.y
           });
         }
       } else {
@@ -1960,7 +1961,7 @@ const WikiNavTree = () => {
           height: isMobile
             ? treePaneMode === 'collapsed'
               ? '0.5rem'
-              : '30%'
+              : '21%'
             : '100%',
           transition: 'all 0.3s ease-in-out',
           position: 'relative',
@@ -2115,7 +2116,7 @@ const WikiNavTree = () => {
             height: isMobile 
               ? isTreePaneCollapsed 
                 ? 'calc(100% - 4rem)'  // Adjust for top nav height
-                : 'calc(70% - 4rem)' // 70% height minus top nav
+                : 'calc(79% - 4rem)' // 79% height minus top nav
               : '100%',
             minWidth: isMobile ? 'unset' : '400px',
             transition: 'all 0.3s ease-in-out'
@@ -2125,11 +2126,11 @@ const WikiNavTree = () => {
 
           
             <div 
-              className={`transition-all duration-300 ease-in-out ${
+              className={`transition-all duration-300 ease-in-out overflow-hidden ${
                 isMobile 
                   ? isSearchBarVisible 
-                    ? 'translate-y-0 opacity-100' 
-                    : '-translate-y-full opacity-0'
+                    ? 'h-auto opacity-100' 
+                    : 'h-0 opacity-0'
                   : ''
               }`}
               style={{
