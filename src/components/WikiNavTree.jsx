@@ -25,8 +25,49 @@ const NavigationBar = ({
   loadNewPage,
   setSearchInput,
   setSearchResults 
-}) => (
-  <div className="flex items-center px-4 mb-4 relative z-[01] gap-2">
+}) => {
+  const [selectedIndex, setSelectedIndex] = React.useState(-1);
+
+  const handleKeyDown = (e) => {
+    if (searchResults.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedIndex(prev => 
+          prev < searchResults.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedIndex(prev => 
+          prev > 0 ? prev - 1 : searchResults.length - 1
+        );
+        break;
+      case 'Enter':
+        if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
+          e.preventDefault();
+          const selectedResult = searchResults[selectedIndex];
+          loadNewPage({ title: selectedResult.title, url: selectedResult.url });
+          setSearchInput('');
+          setSearchResults([]);
+          setSelectedIndex(-1);
+        }
+        break;
+      case 'Escape':
+        setSearchResults([]);
+        setSelectedIndex(-1);
+        break;
+    }
+  };
+
+  // Reset selected index when search results change
+  React.useEffect(() => {
+    setSelectedIndex(-1);
+  }, [searchResults]);
+
+  return (
+  <div className="flex items-center px-4 mb-4 relative z-50 gap-2">
     <button
       onClick={handleBack}
       disabled={historyIndex <= 0}
@@ -45,23 +86,66 @@ const NavigationBar = ({
           type="text"
           value={searchInput}
           onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
           placeholder="Enter Wikipedia URL or search term..."
           className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-all duration-200"
+          style={{
+            WebkitTapHighlightColor: 'transparent',
+            tapHighlightColor: 'transparent',
+            touchAction: 'manipulation',
+            WebkitAppearance: 'none',
+            MozAppearance: 'textfield'
+          }}
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck="false"
+          role="combobox"
+          aria-expanded={searchResults.length > 0}
+          aria-activedescendant={selectedIndex >= 0 ? `search-option-${selectedIndex}` : undefined}
         />
         {searchResults.length > 0 && (
-          <div className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+          <div 
+            className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
+            role="listbox"
+          >
             {searchResults.map((result, index) => (
               <div
                 key={index}
-                className="p-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b last:border-b-0"
+                id={`search-option-${index}`}
+                role="option"
+                aria-selected={index === selectedIndex}
+                className={`p-3 cursor-pointer transition-colors duration-150 border-b last:border-b-0 ${
+                  index === selectedIndex 
+                    ? 'bg-blue-50 border-blue-200' 
+                    : 'hover:bg-gray-50'
+                }`}
+                style={{
+                  WebkitTapHighlightColor: 'rgba(59, 130, 246, 0.2)',
+                  tapHighlightColor: 'rgba(59, 130, 246, 0.2)',
+                  touchAction: 'manipulation'
+                }}
                 onClick={async () => {
                   await loadNewPage({ title: result.title, url: result.url });
                   setSearchInput('');
                   setSearchResults([]);
+                  setSelectedIndex(-1);
+                }}
+                onMouseEnter={() => {
+                  // Update selected index on mouse hover
+                  setSelectedIndex(index);
                 }}
               >
-                <div className="font-medium text-gray-900">{result.title}</div>
-                <div className="text-sm text-gray-600 mt-1">{result.description}</div>
+                <div className={`font-medium ${
+                  index === selectedIndex ? 'text-blue-900' : 'text-gray-900'
+                }`}>
+                  {result.title}
+                </div>
+                <div className={`text-sm mt-1 ${
+                  index === selectedIndex ? 'text-blue-700' : 'text-gray-600'
+                }`}>
+                  {result.description}
+                </div>
               </div>
             ))}
           </div>
@@ -81,7 +165,8 @@ const NavigationBar = ({
       <ArrowLeft size={20} className="rotate-180" />
     </button>
   </div>
-);
+  );
+};
 
 
 const useViewportSize = () => {
@@ -404,10 +489,15 @@ const styles = `
     color: #2563eb;
     text-decoration: none;
     transition: all 0.2s;
+    -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+    tap-highlight-color: rgba(59, 130, 246, 0.2);
   }
-  .wiki-content a:hover {
-    color: #1d4ed8;
-    text-decoration: underline;
+  /* Remove hover states on touch devices to prevent double-tap */
+  @media (hover: hover) and (pointer: fine) {
+    .wiki-content a:hover {
+      color: #1d4ed8;
+      text-decoration: underline;
+    }
   }
   .wiki-content table {
     border-collapse: collapse;
@@ -457,10 +547,15 @@ const styles = `
     border-radius: 4px;
     transition: all 0.2s;
     color: #4b5563;
+    -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+    tap-highlight-color: rgba(59, 130, 246, 0.2);
+    touch-action: manipulation;
   }
-  .toolbar-button:hover {
-    background-color: rgba(59, 130, 246, 0.1);
-    color: #2563eb;
+  @media (hover: hover) and (pointer: fine) {
+    .toolbar-button:hover {
+      background-color: rgba(59, 130, 246, 0.1);
+      color: #2563eb;
+    }
   }
   .toolbar-button.active {
     color: #2563eb;
@@ -479,11 +574,16 @@ const styles = `
     gap: 0.5rem;
     transition: all 0.2s;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+    tap-highlight-color: rgba(59, 130, 246, 0.2);
+    touch-action: manipulation;
   }
-  .control-button:hover {
-    background-color: #f1f5f9;
-    border-color: #cbd5e1;
-    color: #1e293b;
+  @media (hover: hover) and (pointer: fine) {
+    .control-button:hover {
+      background-color: #f1f5f9;
+      border-color: #cbd5e1;
+      color: #1e293b;
+    }
   }
   .control-button:active {
     background-color: #e2e8f0;
@@ -501,6 +601,34 @@ const styles = `
     border-top: 1px solid #e2e8f0;
     background: rgba(255, 255, 255, 0.8);
     backdrop-filter: blur(8px);
+  }
+  
+  /* Mobile-specific touch optimizations */
+  @media (max-width: 768px) {
+    button, input, textarea, select {
+      -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+      tap-highlight-color: rgba(59, 130, 246, 0.2);
+      touch-action: manipulation;
+    }
+    
+    a, [role="button"], [tabindex] {
+      -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+      tap-highlight-color: rgba(59, 130, 246, 0.2);
+      touch-action: manipulation;
+    }
+    
+    .wiki-content a {
+      touch-action: manipulation;
+    }
+    
+    /* Prevent 300ms delay on mobile */
+    * {
+      touch-action: manipulation;
+    }
+    
+    svg {
+      touch-action: pan-x pan-y;
+    }
   }
 `;
 
@@ -644,7 +772,7 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, i
           width={textWidth} 
           height={textHeight} 
           rx="6"  
-          fill="rgba(0, 0, 0, 0.6)" 
+          fill="rgba(0, 0, 0, 0.3)" 
         />
 
         
@@ -2072,7 +2200,7 @@ const WikiNavTree = () => {
                   style={{ 
                     cursor: isDragging ? 'grabbing' : 'grab',
                     fontSize: isMobile ? '0.6rem' : 'inherit',
-                    touchAction: 'none'
+                    touchAction: isMobile ? 'pan-x pan-y' : 'none'
                   }}
                   className="transition-all duration-200"
                 >
