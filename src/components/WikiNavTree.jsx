@@ -128,6 +128,256 @@ const NetworkNodesIcon = ({ size = 20, className = "" }) => (
   </svg>
 );
 
+// Network View Panel Component
+const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
+  const networkSvgRef = React.useRef(null);
+  const [networkZoom, setNetworkZoom] = React.useState(1);
+  const [networkPan, setNetworkPan] = React.useState({ x: 0, y: 0 });
+  const [isDraggingNetwork, setIsDraggingNetwork] = React.useState(false);
+  const [dragStartNetwork, setDragStartNetwork] = React.useState({ x: 0, y: 0 });
+  const simulationRef = React.useRef(null);
+  const [networkNodes, setNetworkNodes] = React.useState([]);
+  const [networkLinks, setNetworkLinks] = React.useState([]);
+
+  // Initialize network data when panel opens
+  React.useEffect(() => {
+    if (isOpen && pages.length > 0) {
+      // Clone the pages data for network view
+      const clonedNodes = pages.map(page => ({
+        ...page,
+        x: page.x || 0,
+        y: page.y || 0,
+        id: page.id,
+        title: page.title,
+        thumbnail: page.thumbnail,
+        isActive: activePage && page.id === activePage.id
+      }));
+
+      // Create links from parent-child relationships
+      const links = [];
+      pages.forEach(page => {
+        if (page.children) {
+          page.children.forEach(childId => {
+            links.push({
+              source: page.id,
+              target: childId
+            });
+          });
+        }
+      });
+
+      setNetworkNodes(clonedNodes);
+      setNetworkLinks(links);
+
+      // Start force simulation with cloned data
+      setTimeout(() => {
+        if (networkSvgRef.current) {
+          runNetworkSimulation(clonedNodes, links);
+        }
+      }, 100);
+    }
+
+    // Cleanup simulation when closing
+    return () => {
+      if (simulationRef.current) {
+        simulationRef.current.stop();
+        simulationRef.current = null;
+      }
+    };
+  }, [isOpen, pages, activePage]);
+
+  const runNetworkSimulation = (nodes, links) => {
+    const width = networkSvgRef.current.clientWidth;
+    const height = networkSvgRef.current.clientHeight;
+
+    // Stop any existing simulation
+    if (simulationRef.current) {
+      simulationRef.current.stop();
+    }
+
+    const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(150))
+      .force('charge', d3.forceManyBody().strength(-1500))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide(80))
+      .force('x', d3.forceX(width / 2).strength(0.05))
+      .force('y', d3.forceY(height / 2).strength(0.05));
+
+    simulationRef.current = simulation;
+
+    simulation.on('tick', () => {
+      setNetworkNodes([...nodes]);
+    });
+  };
+
+  const handleNetworkWheel = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      setNetworkZoom(z => Math.min(Math.max(0.3, z + delta), 3));
+    }
+  };
+
+  const handleNetworkMouseDown = (e) => {
+    if (e.button === 0) {
+      setIsDraggingNetwork(true);
+      setDragStartNetwork({ x: e.clientX - networkPan.x, y: e.clientY - networkPan.y });
+    }
+  };
+
+  const handleNetworkMouseMove = (e) => {
+    if (isDraggingNetwork) {
+      setNetworkPan({ x: e.clientX - dragStartNetwork.x, y: e.clientY - dragStartNetwork.y });
+    }
+  };
+
+  const handleNetworkMouseUp = () => {
+    setIsDraggingNetwork(false);
+  };
+
+  // Fit network to view
+  const fitNetwork = () => {
+    if (networkSvgRef.current && networkNodes.length > 0) {
+      const padding = 50;
+      const bounds = networkNodes.reduce((acc, node) => ({
+        minX: Math.min(acc.minX, node.x - 50),
+        maxX: Math.max(acc.maxX, node.x + 50),
+        minY: Math.min(acc.minY, node.y - 50),
+        maxY: Math.max(acc.maxY, node.y + 50)
+      }), { 
+        minX: networkNodes[0].x, 
+        maxX: networkNodes[0].x, 
+        minY: networkNodes[0].y, 
+        maxY: networkNodes[0].y 
+      });
+
+      const svgWidth = networkSvgRef.current.clientWidth - padding * 2;
+      const svgHeight = networkSvgRef.current.clientHeight - padding * 2;
+      const graphWidth = bounds.maxX - bounds.minX;
+      const graphHeight = bounds.maxY - bounds.minY;
+      
+      const scale = Math.min(svgWidth / graphWidth, svgHeight / graphHeight, 2);
+      setNetworkZoom(scale);
+      setNetworkPan({
+        x: svgWidth / 2 - ((bounds.minX + graphWidth / 2) * scale) + padding,
+        y: svgHeight / 2 - ((bounds.minY + graphHeight / 2) * scale) + padding
+      });
+    }
+  };
+
+  return (
+    <div 
+      className={`fixed inset-y-0 right-0 w-full md:w-3/4 lg:w-2/3 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
+        isOpen ? 'translate-x-0' : 'translate-x-full'
+      }`}
+      onMouseMove={handleNetworkMouseMove}
+      onMouseUp={handleNetworkMouseUp}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+        <h2 className="text-xl font-semibold text-gray-800">Network View</h2>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={fitNetwork}
+            className="p-2 rounded hover:bg-gray-200 transition-colors"
+            title="Fit to View"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 3h4v4" />
+              <path d="M3 21h4v-4" />
+              <path d="M21 3h-4v4" />
+              <path d="M21 21h-4v-4" />
+              <circle cx="12" cy="12" r="1" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            className="p-2 rounded hover:bg-gray-200 transition-colors"
+            title="Close"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Network SVG */}
+      <div className="h-full overflow-hidden">
+        <svg
+          ref={networkSvgRef}
+          width="100%"
+          height="100%"
+          onWheel={handleNetworkWheel}
+          onMouseDown={handleNetworkMouseDown}
+          style={{ cursor: isDraggingNetwork ? 'grabbing' : 'grab' }}
+          className="bg-gray-50"
+        >
+          <g transform={`translate(${networkPan.x}, ${networkPan.y}) scale(${networkZoom})`}>
+            {/* Render edges */}
+            {networkLinks.map((link, idx) => {
+              const sourceNode = networkNodes.find(n => n.id === link.source.id || n.id === link.source);
+              const targetNode = networkNodes.find(n => n.id === link.target.id || n.id === link.target);
+              if (!sourceNode || !targetNode) return null;
+              
+              return (
+                <line
+                  key={`network-link-${idx}`}
+                  x1={sourceNode.x}
+                  y1={sourceNode.y}
+                  x2={targetNode.x}
+                  y2={targetNode.y}
+                  stroke="#94a3b8"
+                  strokeWidth="2"
+                  opacity="0.6"
+                />
+              );
+            })}
+            
+            {/* Render nodes */}
+            {networkNodes.map(node => (
+              <g key={`network-node-${node.id}`} transform={`translate(${node.x},${node.y})`}>
+                <circle
+                  r="40"
+                  fill={node.isActive ? '#3b82f6' : '#fff'}
+                  stroke={node.isActive ? '#1d4ed8' : '#64748b'}
+                  strokeWidth="2"
+                />
+                {node.thumbnail && (
+                  <image
+                    x="-35"
+                    y="-35"
+                    width="70"
+                    height="70"
+                    href={node.thumbnail}
+                    clipPath="url(#network-circle-clip)"
+                    preserveAspectRatio="xMidYMid slice"
+                  />
+                )}
+                <text
+                  textAnchor="middle"
+                  dy="55"
+                  fill="#1f2937"
+                  className="text-sm font-medium"
+                >
+                  {node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title}
+                </text>
+              </g>
+            ))}
+          </g>
+          
+          <defs>
+            <clipPath id="network-circle-clip">
+              <circle r="35" />
+            </clipPath>
+          </defs>
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 const styles = `
   .wiki-content {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -462,6 +712,7 @@ const WikiNavTree = () => {
   const [isSplayed, setIsSplayed] = useState(false);
   const [showSeeAlso, setShowSeeAlso] = useState(false);
   const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
+  const [showNetworkView, setShowNetworkView] = useState(false);
 
   const [treePaneMode, setTreePaneMode] = useState('normal'); // 'collapsed', 'normal', 'expanded'
 
@@ -904,13 +1155,37 @@ const WikiNavTree = () => {
     };
   
     // Start with root node
-    assignLevels(pages[0].id);
+    if (pages.length > 0) {
+      assignLevels(pages[0].id);
+    }
+    
+    // Handle any orphaned nodes that weren't reached from root
+    pages.forEach(page => {
+      if (!processed.has(page.id)) {
+        // Try to find its proper level based on parent
+        const parentId = findParentId(page.id);
+        if (parentId && processed.has(parentId)) {
+          // Find parent's level
+          let parentLevel = 0;
+          for (const [level, nodes] of levels.entries()) {
+            if (nodes.includes(parentId)) {
+              parentLevel = level;
+              break;
+            }
+          }
+          assignLevels(page.id, parentLevel + 1);
+        } else {
+          // Orphaned node - put at level 0
+          assignLevels(page.id, 0);
+        }
+      }
+    });
   
     // Step 2: Position nodes by level, adjusting for overlaps
     const newPositions = new Map();
     
     // Process each level
-    Array.from(levels.keys()).forEach(level => {
+    Array.from(levels.keys()).sort((a, b) => a - b).forEach(level => {
       const nodesInLevel = levels.get(level);
       const y = level * LEVEL_HEIGHT + 50; // vertical position
       
@@ -924,8 +1199,9 @@ const WikiNavTree = () => {
           const parentId = findParentId(nodeId);
           if (parentId && newPositions.has(parentId)) {
             const parentX = newPositions.get(parentId).x;
-            const siblingCount = pages.find(p => p.id === parentId).children.length;
-            const siblingIndex = pages.find(p => p.id === parentId).children.indexOf(nodeId);
+            const parent = pages.find(p => p.id === parentId);
+            const siblingCount = parent ? parent.children.length : 1;
+            const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
             x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE * 1.5;
           } else {
             x = (index + 0.5) * NODE_SIZE * 1.5;
@@ -943,11 +1219,14 @@ const WikiNavTree = () => {
         hasOverlap = false;
         nodesInLevel.forEach((nodeId, i) => {
           const pos1 = newPositions.get(nodeId);
+          if (!pos1) return;
           
           nodesInLevel.forEach((otherId, j) => {
             if (i >= j) return;
             
             const pos2 = newPositions.get(otherId);
+            if (!pos2) return;
+            
             const dx = pos2.x - pos1.x;
             const distance = Math.abs(dx);
             
@@ -971,13 +1250,26 @@ const WikiNavTree = () => {
       } while (hasOverlap);
     });
     
-    // Apply new positions to pages
+    // Apply new positions to pages - ensure ALL pages get updated
     setPages(prevPages => 
-      prevPages.map(page => ({
-        ...page,
-        x: newPositions.get(page.id).x,
-        y: newPositions.get(page.id).y
-      }))
+      prevPages.map(page => {
+        const newPos = newPositions.get(page.id);
+        if (newPos) {
+          return {
+            ...page,
+            x: newPos.x,
+            y: newPos.y
+          };
+        } else {
+          // Fallback for any nodes that somehow weren't positioned
+          console.warn(`Node ${page.id} (${page.title}) was not positioned in compact layout`);
+          return {
+            ...page,
+            x: 50,
+            y: 50
+          };
+        }
+      })
     );
   };
   
@@ -1204,17 +1496,9 @@ const WikiNavTree = () => {
     });
   };
 
-  // Toggle splay mode. When turning off, reapply the compact layout.
+  // Toggle network view panel
   const handleToggleSplay = () => {
-    if (isAnimating) return;
-    if (!isSplayed) {
-      applyForceDirectedLayout();
-      setIsSplayed(true);
-    } else {
-      simulationRef.current?.stop();
-      applyCompactLayout();
-      setIsSplayed(false);
-    }
+    setShowNetworkView(!showNetworkView);
   };
 
   // const handleTreePaneToggle = () => {
@@ -1593,24 +1877,32 @@ const WikiNavTree = () => {
               <button
                 onClick={handleFitGraph}
                 className="toolbar-button"
-                title="Fit Graph"
+                title="Fit to View"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <circle cx="12" cy="12" r="3"/>
-                  <line x1="12" y1="3" x2="12" y2="9"/>
-                  <line x1="12" y1="15" x2="12" y2="21"/>
-                  <line x1="3" y1="12" x2="9" y2="12"/>
-                  <line x1="15" y1="12" x2="21" y2="12"/>
+                  {/* Frame corners */}
+                  <path d="M3 3h4v4" />
+                  <path d="M3 21h4v-4" />
+                  <path d="M21 3h-4v4" />
+                  <path d="M21 21h-4v-4" />
+                  {/* Center dot */}
+                  <circle cx="12" cy="12" r="1" fill="currentColor" />
                 </svg>
               </button>
               <button
                 onClick={handleToggleSplay}
-                className={`toolbar-button ${isAnimating ? 'opacity-50 cursor-not-allowed' : ''} ${isSplayed ? 'active' : ''}`}
-                title="Splay Tree"
-                disabled={isAnimating}
+                className={`toolbar-button ${showNetworkView ? 'active' : ''}`}
+                title="Network View"
               >
-                {isSplayed ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {/* Network/Graph icon */}
+                  <circle cx="12" cy="5" r="3" />
+                  <circle cx="5" cy="19" r="3" />
+                  <circle cx="19" cy="19" r="3" />
+                  <line x1="12" y1="8" x2="5" y2="16" />
+                  <line x1="12" y1="8" x2="19" y2="16" />
+                  <line x1="8" y1="19" x2="16" y2="19" />
+                </svg>
               </button>
               <button
                 onClick={() => setShowSeeAlso(prev => !prev)} 
@@ -1762,6 +2054,15 @@ const WikiNavTree = () => {
           <Discord size={20} />
         </a>
       </div>
+      
+      {/* Network View Panel */}
+      <NetworkViewPanel
+        isOpen={showNetworkView}
+        onClose={() => setShowNetworkView(false)}
+        pages={pages}
+        activePage={activePage}
+      />
+      
       {isLoadingShared && <LoadingBunny />}
     </div>
   );
