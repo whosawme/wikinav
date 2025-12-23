@@ -1,11 +1,9 @@
+/* Import WikiNav custom styles first (before Tailwind) */
+@import './styles/wikiContent.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Wikipedia content styles */
-.wiki-content {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-}
 
 /* Make internal Wikipedia links clearly visible */
 .wiki-content a[href^="/wiki/"] {
@@ -21,29 +19,12 @@
   border-bottom: 2px solid #0645ad;
 }
 
-/* Style other content */
-.wiki-content img {
-  max-width: 100%;
-  height: auto;
-}
-
-.wiki-content table {
-  border-collapse: collapse;
-  margin: 1em 0;
-}
-
-.wiki-content th, 
-.wiki-content td {
-  border: 1px solid #a2a9b1;
-  padding: 0.5em;
-}
-
-/* Add some spacing between elements */
-.wiki-content p {
-  margin: 1em 0;
-}
-
-.wiki-content h1, h2, h3, h4, h5, h6 {
-  margin: 1em 0 0.5em 0;
+/* Add heading border styling */
+.wiki-content h1,
+.wiki-content h2,
+.wiki-content h3,
+.wiki-content h4,
+.wiki-content h5,
+.wiki-content h6 {
   border-bottom: 1px solid #a2a9b1;
 }
