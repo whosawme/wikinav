@@ -1431,7 +1431,7 @@ const WikiNavTree = () => {
   const resolveMobileCollisions = (pages) => {
     // Increased spacing to prevent node/label overlap
     const MIN_NODE_DISTANCE = 140; // Increased from 120 - accounts for node + label height
-    const MIN_CROSS_LEVEL_DISTANCE = 100; // Minimum distance between nodes in different columns
+    const MIN_CROSS_LEVEL_DISTANCE = 140; // Minimum distance between nodes in different columns (increased from 100)
     const updatedPages = [...pages];
 
     // Group nodes by x-levels (since mobile flows horizontally)
@@ -1505,7 +1505,7 @@ const WikiNavTree = () => {
     return updatedPages;
   };
 
-  const calculateNodePosition = (parentX, parentY, index, siblingCount, viewportWidth, existingPages = []) => {
+  const calculateNodePosition = (parentX, parentY, index, siblingCount, viewportWidth) => {
     // Make spacing responsive to viewport width
     const isMobile = viewportWidth < 768; // Mobile breakpoint
 
@@ -1513,43 +1513,6 @@ const WikiNavTree = () => {
     const nodeHeight = isMobile ? 150 : 100; // Accounts for node + label
     const nodeWidth = isMobile ? 100 : 120;
     const levelSpacing = isMobile ? 100 : 140; // Distance between levels
-    const MIN_DISTANCE = isMobile ? 140 : 100; // Minimum distance to avoid overlap
-
-    // Helper to check if a position collides with existing nodes
-    const hasCollision = (x, y) => {
-      for (const page of existingPages) {
-        const dx = Math.abs(page.x - x);
-        const dy = Math.abs(page.y - y);
-        if (isMobile) {
-          // Mobile: same column (x) means check vertical spacing
-          if (dx < 50 && dy < MIN_DISTANCE) return true;
-        } else {
-          // Desktop: same row (y) means check horizontal spacing
-          if (dy < 50 && dx < MIN_DISTANCE) return true;
-        }
-      }
-      return false;
-    };
-
-    // Find a non-colliding position
-    const findAvailablePosition = (baseX, baseY) => {
-      let x = baseX;
-      let y = baseY;
-      let attempts = 0;
-      const maxAttempts = 20;
-
-      while (hasCollision(x, y) && attempts < maxAttempts) {
-        if (isMobile) {
-          // Mobile: shift down vertically
-          y += MIN_DISTANCE;
-        } else {
-          // Desktop: shift right horizontally (prefer right side to keep tree compact)
-          x += nodeWidth;
-        }
-        attempts++;
-      }
-      return { x, y };
-    };
 
     let baseX, baseY;
 
@@ -1566,8 +1529,84 @@ const WikiNavTree = () => {
       baseY = parentY + levelSpacing;
     }
 
-    // Check for collision and find available spot
-    return findAvailablePosition(baseX, baseY);
+    // New node claims its natural position
+    // Any colliding nodes will be pushed in setPages via cascadePushNodes
+    return { x: baseX, y: baseY };
+  };
+
+  // Push nodes that collide with a new position, cascading the push through the tree
+  const cascadePushNodes = (pages, newNodeX, newNodeY, newNodeId, viewportWidth) => {
+    const isMobile = viewportWidth < 768;
+    const nodeHeight = isMobile ? 150 : 100;
+    const nodeWidth = isMobile ? 100 : 120;
+    const COLLISION_THRESHOLD = isMobile ? 100 : 80; // How close nodes can be before collision
+
+    // Find nodes that collide with the given position
+    const findCollidingNode = (x, y, excludeIds = []) => {
+      for (const page of pages) {
+        if (excludeIds.includes(page.id)) continue;
+        const dx = Math.abs(page.x - x);
+        const dy = Math.abs(page.y - y);
+        // Check if nodes overlap (considering their visual size)
+        if (dx < COLLISION_THRESHOLD && dy < COLLISION_THRESHOLD) {
+          return page;
+        }
+      }
+      return null;
+    };
+
+    // Track which nodes need to be pushed and by how much
+    const pushes = new Map(); // nodeId -> { dx, dy }
+    const processed = new Set([newNodeId]);
+
+    // Start by checking collision at the new node's position
+    let collidingNode = findCollidingNode(newNodeX, newNodeY, [newNodeId]);
+
+    if (!collidingNode) {
+      return pages; // No collision, return unchanged
+    }
+
+    // Queue of positions to check for cascade
+    const queue = [{ x: newNodeX, y: newNodeY, excludeIds: [newNodeId] }];
+
+    while (queue.length > 0) {
+      const { x, y, excludeIds } = queue.shift();
+      const collider = findCollidingNode(x, y, excludeIds);
+
+      if (!collider || processed.has(collider.id)) continue;
+
+      processed.add(collider.id);
+
+      // Calculate push amount
+      const pushAmount = isMobile ? nodeHeight : nodeWidth;
+      const newX = isMobile ? collider.x : collider.x + pushAmount;
+      const newY = isMobile ? collider.y + pushAmount : collider.y;
+
+      pushes.set(collider.id, {
+        dx: newX - collider.x,
+        dy: newY - collider.y
+      });
+
+      // Check if pushing this node causes another collision
+      queue.push({ x: newX, y: newY, excludeIds: [...excludeIds, collider.id] });
+    }
+
+    // Apply all pushes
+    if (pushes.size === 0) {
+      return pages;
+    }
+
+    return pages.map(page => {
+      const push = pushes.get(page.id);
+      if (push) {
+        return {
+          ...page,
+          x: page.x + push.dx,
+          y: page.y + push.dy
+        };
+      }
+      return page;
+    });
   };
 
   // Event handlers for page navigation and search
@@ -1822,12 +1861,12 @@ const WikiNavTree = () => {
                 activePage.y,
                 activePage.children.length,
                 activePage.children.length + 1,
-                viewport.width,  // Pass viewport width
-                pages  // Pass existing pages for collision detection
+                viewport.width
               );
+          const newPageId = generateUniqueId();
           const newPage = {
             parent_id: pages.length === 0 ? "0" : activePage.id,
-            id: generateUniqueId(),
+            id: newPageId,
             title: decodedTitle,
             url: pageInfo.url,
             content,
@@ -1841,7 +1880,8 @@ const WikiNavTree = () => {
           };
 
           setPages(prevPages => {
-            const updatedPages = [...prevPages, newPage];
+            // First add the new page
+            let updatedPages = [...prevPages, newPage];
 
             // Add parent-child relationship
             if (activePage) {
@@ -1853,6 +1893,9 @@ const WikiNavTree = () => {
                 updatedPages[activePageIndex].children.push(newPage.id);
               }
             }
+
+            // Push any colliding nodes (cascade through tree)
+            updatedPages = cascadePushNodes(updatedPages, position.x, position.y, newPageId, viewport.width);
 
             return updatedPages;
           });
@@ -2121,8 +2164,17 @@ const WikiNavTree = () => {
                 </svg>
               </button>
               <button
-                onClick={() => setShowSeeAlso(prev => !prev)} 
-                className={`toolbar-button ${showSeeAlso ? 'active' : ''}`} 
+                onClick={() => {
+                  setShowSeeAlso(prev => {
+                    const newValue = !prev;
+                    // Open network view shelf when enabling related pages
+                    if (newValue && !isSplayed) {
+                      setIsSplayed(true);
+                    }
+                    return newValue;
+                  });
+                }}
+                className={`toolbar-button ${showSeeAlso ? 'active' : ''}`}
                 title="Toggle Related Pages"
               >
                 <NetworkNodesIcon size={20} />
