@@ -266,66 +266,107 @@ export const parseSeeAlsoLinks = (htmlContent) => {
     const doc = parser.parseFromString(htmlContent, 'text/html');
 
     // Find "See also" section header - Wikipedia uses various structures
-    // Try finding by mw-headline span first
-    let seeAlsoHeader = Array.from(doc.querySelectorAll('.mw-headline'))
-      .find(span => span.textContent.trim().toLowerCase() === 'see also');
+    let sectionContainer = null;
 
-    // If not found, try h2 directly
-    if (!seeAlsoHeader) {
-      seeAlsoHeader = Array.from(doc.querySelectorAll('h2'))
-        .find(h2 => h2.textContent.toLowerCase().includes('see also'));
+    // Method 1: Modern Wikipedia structure - h2 with id inside mw-heading div
+    const h2WithId = doc.querySelector('h2#See_also, h2[id="See_also"]');
+    if (h2WithId) {
+      // The h2 is inside a div.mw-heading, we need to get that div's siblings
+      sectionContainer = h2WithId.closest('.mw-heading') || h2WithId.parentElement;
     }
 
-    if (!seeAlsoHeader) return [];
+    // Method 2: Try finding by mw-headline span (older Wikipedia HTML structure)
+    if (!sectionContainer) {
+      const headlineSpan = doc.querySelector('#See_also, #See_Also, .mw-headline#See_also');
+      if (headlineSpan) {
+        const h2 = headlineSpan.closest('h2');
+        sectionContainer = h2?.closest('.mw-heading') || h2;
+      }
+    }
 
-    // Get the parent h2 if we found a span
-    const h2 = seeAlsoHeader.tagName === 'H2' ? seeAlsoHeader : seeAlsoHeader.closest('h2');
-    if (!h2) return [];
+    // Method 3: Search all h2 elements by text content
+    if (!sectionContainer) {
+      const allH2s = Array.from(doc.querySelectorAll('h2'));
+      for (const h2 of allH2s) {
+        if (h2.textContent.toLowerCase().includes('see also')) {
+          sectionContainer = h2.closest('.mw-heading') || h2;
+          break;
+        }
+      }
+    }
 
-    // Find the next ul after the header (skip any divs or other elements)
-    let sibling = h2.nextElementSibling;
+    if (!sectionContainer) {
+      console.log('[parseSeeAlsoLinks] No See Also section found');
+      return [];
+    }
+
+    // Find the list of links after the section header
+    // Look at siblings of the container element
+    let sibling = sectionContainer.nextElementSibling;
     let attempts = 0;
-    const maxAttempts = 5; // Don't search too far
+    const maxAttempts = 10;
+    let ulElement = null;
 
     while (sibling && attempts < maxAttempts) {
-      if (sibling.tagName === 'UL') break;
-      if (sibling.tagName === 'H2' || sibling.tagName === 'H3') {
-        // Hit another section, stop
-        return [];
-      }
-      // Check for nested ul in divs (some Wikipedia templates)
-      const nestedUl = sibling.querySelector('ul');
-      if (nestedUl) {
-        sibling = nestedUl;
+      // Stop if we hit another section heading
+      if (sibling.classList?.contains('mw-heading') ||
+          sibling.tagName === 'H2' ||
+          (sibling.tagName === 'DIV' && sibling.querySelector('h2'))) {
         break;
       }
+
+      // Direct ul element
+      if (sibling.tagName === 'UL') {
+        ulElement = sibling;
+        break;
+      }
+
+      // Check for ul inside div wrappers (div-col, etc.)
+      const nestedUl = sibling.querySelector('ul');
+      if (nestedUl) {
+        ulElement = nestedUl;
+        break;
+      }
+
       sibling = sibling.nextElementSibling;
       attempts++;
     }
 
-    if (!sibling || sibling.tagName !== 'UL') return [];
+    if (!ulElement) {
+      console.log('[parseSeeAlsoLinks] No ul element found after See Also header');
+      return [];
+    }
 
-    // Extract links from the list
-    const links = Array.from(sibling.querySelectorAll('li > a, li > i > a'))
-      .filter(a => {
-        const href = a.getAttribute('href') || '';
-        // Only include wiki article links, not special pages
-        return href.startsWith('/wiki/') &&
-               !href.includes(':') &&
-               !href.includes('#');
-      })
-      .slice(0, 8) // Limit to 8 suggestions
-      .map(a => {
-        const href = a.getAttribute('href') || '';
-        const title = a.textContent.trim();
-        // Extract the title from /wiki/Title_Here
-        const wikiTitle = href.replace('/wiki/', '').replace(/_/g, ' ');
-        return {
-          title: title || decodeURIComponent(wikiTitle),
-          url: `https://en.wikipedia.org${href}`
-        };
+    // Extract links from the list - get the first link from each list item
+    const links = [];
+    const listItems = ulElement.querySelectorAll('li');
+
+    for (const li of listItems) {
+      // Get the first wiki link in this list item
+      const firstLink = li.querySelector('a[href^="/wiki/"]');
+      if (!firstLink) continue;
+
+      const href = firstLink.getAttribute('href') || '';
+
+      // Skip special pages (those with colons like File:, Category:, etc.)
+      if (href.includes(':')) continue;
+
+      const title = firstLink.textContent.trim();
+      if (!title) continue;
+
+      // Avoid duplicates
+      if (links.some(l => l.title === title)) continue;
+
+      links.push({
+        title,
+        url: `https://en.wikipedia.org${href}`
       });
 
+      // Limit to 12 suggestions
+      if (links.length >= 12) break;
+    }
+
+    console.log('[parseSeeAlsoLinks] Found', links.length, 'links');
     return links;
   } catch (error) {
     console.error('Error parsing See also links:', error);

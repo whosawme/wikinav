@@ -1,17 +1,19 @@
 import { useState } from 'react';
-import { ArrowLeft, Home, Share2, Menu } from 'lucide-react';
+import { ArrowLeft, Home, Share2, Menu, Rabbit } from 'lucide-react';
 
-const MobileBottomNav = ({ 
-  onBack, 
-  onHome, 
-  onNetworkView, 
-  onShare, 
+const MobileBottomNav = ({
+  onBack,
+  onHome,
+  onNetworkView,
+  onShare,
   onMenu,
   onReset,
   onFitGraph,
   onExport,
+  onRabbitHole,
   canGoBack,
   showNetworkView,
+  showRabbitHole,
   className = ""
 }) => {
   const [activeTab, setActiveTab] = useState('tree');
@@ -89,6 +91,19 @@ const MobileBottomNav = ({
             <line x1="12" y1="8" x2="19" y2="16" />
             <line x1="8" y1="19" x2="16" y2="19" />
           </svg>
+        </button>
+
+        {/* Rabbit Hole Button */}
+        <button
+          onClick={() => handleTabClick('rabbit', onRabbitHole)}
+          className={`p-2 rounded-lg transition-all duration-200 ${
+            showRabbitHole
+              ? 'text-purple-600 bg-purple-50'
+              : 'text-gray-600 hover:bg-gray-50 active:bg-gray-100'
+          }`}
+          title="Rabbit Hole"
+        >
+          <Rabbit size={16} />
         </button>
 
         {/* Share Button */}

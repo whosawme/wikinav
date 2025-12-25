@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as d3 from 'd3';
-import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
+import { Github, MessagesSquare as Discord, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight, Share2, Rabbit } from 'lucide-react';
 import { ArrowLeft } from 'lucide-react';
 import LoadingBunny from './LoadingBunny';
 import PWAInstallPrompt from './PWAInstallPrompt';
 import MobileBottomNav from './MobileBottomNav';
 import PullToRefresh from './PullToRefresh';
+import RabbitHoleShelf from './RabbitHoleShelf';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useSmartPanning } from '../hooks/useSmartPanning';
 import MobileScrollHints from './MobileScrollHints';
@@ -89,6 +90,18 @@ const NavigationBar = ({
       <ArrowLeft size={20} />
     </button>
 
+    <button
+      onClick={handleForward}
+      disabled={historyIndex >= navigationHistory.length - 1}
+      className={`p-2 rounded-full shadow transition-all duration-200 ${
+        historyIndex >= navigationHistory.length - 1
+          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+          : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+      }`}
+    >
+      <ArrowLeft size={20} className="rotate-180" />
+    </button>
+
     <form onSubmit={handleSubmit} className="flex-1">
       <div className="relative">
         <input
@@ -114,7 +127,7 @@ const NavigationBar = ({
           aria-activedescendant={selectedIndex >= 0 ? `search-option-${selectedIndex}` : undefined}
         />
         {searchResults.length > 0 && (
-          <div 
+          <div
             className="absolute w-full mt-2 bg-white border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
             role="listbox"
           >
@@ -125,8 +138,8 @@ const NavigationBar = ({
                 role="option"
                 aria-selected={index === selectedIndex}
                 className={`p-3 cursor-pointer transition-colors duration-150 border-b last:border-b-0 ${
-                  index === selectedIndex 
-                    ? 'bg-blue-50 border-blue-200' 
+                  index === selectedIndex
+                    ? 'bg-blue-50 border-blue-200'
                     : 'hover:bg-gray-50'
                 }`}
                 style={{
@@ -161,18 +174,6 @@ const NavigationBar = ({
         )}
       </div>
     </form>
-
-    <button
-      onClick={handleForward}
-      disabled={historyIndex >= navigationHistory.length - 1}
-      className={`p-2 rounded-full shadow transition-all duration-200 ${
-        historyIndex >= navigationHistory.length - 1
-          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-          : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
-      }`}
-    >
-      <ArrowLeft size={20} className="rotate-180" />
-    </button>
   </div>
   );
 };
@@ -779,6 +780,7 @@ const WikiNavTree = () => {
   const [showSeeAlso, setShowSeeAlso] = useState(false);
   const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
   const [showNetworkView, setShowNetworkView] = useState(false);
+  const [showRabbitHole, setShowRabbitHole] = useState(false);
 
   const [treePaneMode, setTreePaneMode] = useState('normal'); // 'collapsed', 'normal', 'expanded'
 
@@ -2030,10 +2032,12 @@ const WikiNavTree = () => {
         minHeight: '3rem'
       }}
     >
-      <img 
-        src="/wikirabbit_transparent.svg" 
-        alt="WikiRabbit" 
-        className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+      <img
+        src="/wikirabbit_transparent.svg"
+        alt="WikiRabbit - Click to go home"
+        className="h-full w-auto p-2 toolbar-button transition-all duration-200 cursor-pointer hover:opacity-80"
+        onClick={handleReset}
+        title="Go to Home Page"
       />
       {isTreePaneCollapsed && (
         <div className="flex items-center space-x-2">
@@ -2120,10 +2124,12 @@ const WikiNavTree = () => {
               minHeight: '3rem'
             }}
           >
-            <img 
-              src="/wikirabbit_transparent.svg" 
-              alt="WikiRabbit" 
-              className="h-full w-auto p-2 toolbar-button transition-all duration-200"
+            <img
+              src="/wikirabbit_transparent.svg"
+              alt="WikiRabbit - Click to go home"
+              className="h-full w-auto p-2 toolbar-button transition-all duration-200 cursor-pointer hover:opacity-80"
+              onClick={handleReset}
+              title="Go to Home Page"
             />
             <div className="flex items-center space-x-2">
               <button
@@ -2180,15 +2186,22 @@ const WikiNavTree = () => {
                 <NetworkNodesIcon size={20} />
               </button>
               <button
+                onClick={() => setShowRabbitHole(true)}
+                className={`toolbar-button ${showRabbitHole ? 'active' : ''}`}
+                title="Rabbit Hole - Deep Analysis"
+              >
+                <Rabbit size={20} />
+              </button>
+              <button
                 onClick={handleShare}
                 className="toolbar-button"
                 title="Share Tree"
               >
                 <Share2 size={20} />
               </button>
-              <button 
-                onClick={exportTree} 
-                className="toolbar-button" 
+              <button
+                onClick={exportTree}
+                className="toolbar-button"
                 title="Export Tree"
               >
                 <Download size={20} />
@@ -2363,7 +2376,16 @@ const WikiNavTree = () => {
         pages={pages}
         activePage={activePage}
       />
-      
+
+      {/* Rabbit Hole Analysis Panel */}
+      <RabbitHoleShelf
+        isOpen={showRabbitHole}
+        onClose={() => setShowRabbitHole(false)}
+        currentPage={activePage}
+        onLoadPage={loadNewPage}
+        loadPageData={loadPageData}
+      />
+
       {isLoadingShared && <LoadingBunny />}
       
       {/* Mobile Scroll Hints */}
@@ -2386,8 +2408,10 @@ const WikiNavTree = () => {
           onReset={handleReset}
           onFitGraph={handleFitGraph}
           onExport={exportTree}
+          onRabbitHole={() => setShowRabbitHole(true)}
           canGoBack={historyIndex > 0}
           showNetworkView={showNetworkView}
+          showRabbitHole={showRabbitHole}
         />
       )}
       
