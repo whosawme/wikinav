@@ -832,13 +832,13 @@ const WikiNavTree = () => {
   // Graph traversal: press-hold-drag to navigate related pages
   const {
     traversalState,
+    isTraversing,
     handleTraversalPointerDown,
     handleTraversalPointerMove,
     handleTraversalPointerUp,
     cancelTraversal,
   } = useGraphTraversal({
     pages,
-    activePage,
     zoom,
     pan,
     svgRef,
@@ -866,10 +866,11 @@ const WikiNavTree = () => {
   };
 
   const handleTouchEndSwipe = (e) => {
-    setTouchEnd(e.changedTouches[0].clientX);
-    const swipeDistance = touchStart - touchEnd;
-    
-    if (Math.abs(swipeDistance) > 50) { // Min swipe distance
+    const endX = e.changedTouches[0].clientX;
+    setTouchEnd(endX);
+    const swipeDistance = touchStart - endX;
+
+    if (Math.abs(swipeDistance) > 80) { // Min swipe distance
       if (swipeDistance > 0) {
         handleForward();
       } else {
@@ -1632,18 +1633,18 @@ const WikiNavTree = () => {
 
   // Event handlers for page navigation and search
   const handleWikiLinkClick = async (e) => {
-    if (e.target.tagName === 'A') {
+    // Walk up from the tapped element to find the nearest <a> tag
+    const anchor = e.target.closest('a');
+    if (anchor) {
       e.preventDefault();
-      const href = e.target.getAttribute('href');
+      const href = anchor.getAttribute('href');
       if (href && href.startsWith('/wiki/')) {
         const title = href.replace('/wiki/', '');
         if (!title.startsWith('File:') && !title.startsWith('Category:')) {
           const url = `https://en.wikipedia.org${href}`;
-          // Ensure activePage exists before loading new page
           if (activePage) {
             await loadNewPage({ title, url });
           } else {
-            // If no active page, treat as initial load
             await loadNewPage({ title, url, isInitialLoad: true });
           }
         }
@@ -2243,28 +2244,33 @@ const WikiNavTree = () => {
                   onWheel={handleWheel}
                   onMouseDown={(e) => {
                     handleTraversalPointerDown(e);
-                    if (!traversalState) handleMouseDown(e);
+                    handleMouseDown(e);
                   }}
                   onMouseMove={(e) => {
-                    handleTraversalPointerMove(e);
+                    if (isTraversing) {
+                      handleTraversalPointerMove(e);
+                    }
                   }}
                   onMouseUp={(e) => {
                     handleTraversalPointerUp(e);
                   }}
                   onTouchStart={(e) => {
                     handleTraversalPointerDown(e);
-                    if (!traversalState) handleTouchStart(e);
+                    handleTouchStart(e);
                   }}
                   onTouchMove={(e) => {
-                    handleTraversalPointerMove(e);
-                    if (!traversalState) handleTouchMove(e);
+                    if (isTraversing) {
+                      handleTraversalPointerMove(e);
+                    } else {
+                      handleTouchMove(e);
+                    }
                   }}
                   onTouchEnd={() => {
                     handleTraversalPointerUp();
                     lastPinchDistance.current = null;
                   }}
                   style={{
-                    cursor: traversalState ? 'none' : isDragging ? 'grabbing' : 'grab',
+                    cursor: isTraversing ? 'none' : isDragging ? 'grabbing' : 'grab',
                     fontSize: isMobile ? '0.6rem' : 'inherit',
                     touchAction: isMobile ? 'pan-x pan-y' : 'none'
                   }}
