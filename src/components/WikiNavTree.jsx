@@ -866,10 +866,11 @@ const WikiNavTree = () => {
   };
 
   const handleTouchEndSwipe = (e) => {
-    setTouchEnd(e.changedTouches[0].clientX);
-    const swipeDistance = touchStart - touchEnd;
-    
-    if (Math.abs(swipeDistance) > 50) { // Min swipe distance
+    const endX = e.changedTouches[0].clientX;
+    setTouchEnd(endX);
+    const swipeDistance = touchStart - endX;
+
+    if (Math.abs(swipeDistance) > 80) { // Min swipe distance
       if (swipeDistance > 0) {
         handleForward();
       } else {
@@ -1632,18 +1633,18 @@ const WikiNavTree = () => {
 
   // Event handlers for page navigation and search
   const handleWikiLinkClick = async (e) => {
-    if (e.target.tagName === 'A') {
+    // Walk up from the tapped element to find the nearest <a> tag
+    const anchor = e.target.closest('a');
+    if (anchor) {
       e.preventDefault();
-      const href = e.target.getAttribute('href');
+      const href = anchor.getAttribute('href');
       if (href && href.startsWith('/wiki/')) {
         const title = href.replace('/wiki/', '');
         if (!title.startsWith('File:') && !title.startsWith('Category:')) {
           const url = `https://en.wikipedia.org${href}`;
-          // Ensure activePage exists before loading new page
           if (activePage) {
             await loadNewPage({ title, url });
           } else {
-            // If no active page, treat as initial load
             await loadNewPage({ title, url, isInitialLoad: true });
           }
         }
