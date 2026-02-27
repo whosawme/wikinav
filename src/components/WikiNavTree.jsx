@@ -832,13 +832,13 @@ const WikiNavTree = () => {
   // Graph traversal: press-hold-drag to navigate related pages
   const {
     traversalState,
+    isTraversing,
     handleTraversalPointerDown,
     handleTraversalPointerMove,
     handleTraversalPointerUp,
     cancelTraversal,
   } = useGraphTraversal({
     pages,
-    activePage,
     zoom,
     pan,
     svgRef,
@@ -2243,28 +2243,33 @@ const WikiNavTree = () => {
                   onWheel={handleWheel}
                   onMouseDown={(e) => {
                     handleTraversalPointerDown(e);
-                    if (!traversalState) handleMouseDown(e);
+                    handleMouseDown(e);
                   }}
                   onMouseMove={(e) => {
-                    handleTraversalPointerMove(e);
+                    if (isTraversing) {
+                      handleTraversalPointerMove(e);
+                    }
                   }}
                   onMouseUp={(e) => {
                     handleTraversalPointerUp(e);
                   }}
                   onTouchStart={(e) => {
                     handleTraversalPointerDown(e);
-                    if (!traversalState) handleTouchStart(e);
+                    handleTouchStart(e);
                   }}
                   onTouchMove={(e) => {
-                    handleTraversalPointerMove(e);
-                    if (!traversalState) handleTouchMove(e);
+                    if (isTraversing) {
+                      handleTraversalPointerMove(e);
+                    } else {
+                      handleTouchMove(e);
+                    }
                   }}
                   onTouchEnd={() => {
                     handleTraversalPointerUp();
                     lastPinchDistance.current = null;
                   }}
                   style={{
-                    cursor: traversalState ? 'none' : isDragging ? 'grabbing' : 'grab',
+                    cursor: isTraversing ? 'none' : isDragging ? 'grabbing' : 'grab',
                     fontSize: isMobile ? '0.6rem' : 'inherit',
                     touchAction: isMobile ? 'pan-x pan-y' : 'none'
                   }}
