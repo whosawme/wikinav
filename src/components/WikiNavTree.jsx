@@ -7,8 +7,10 @@ import PWAInstallPrompt from './PWAInstallPrompt';
 import MobileBottomNav from './MobileBottomNav';
 import PullToRefresh from './PullToRefresh';
 import RabbitHoleShelf from './RabbitHoleShelf';
+import NodeShelf from './NodeShelf';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useSmartPanning } from '../hooks/useSmartPanning';
+import useGraphTraversal from '../hooks/useGraphTraversal';
 import MobileScrollHints from './MobileScrollHints';
 import { useWikipediaSearch } from '../hooks/useWikipediaSearch';
 import {
@@ -826,6 +828,23 @@ const WikiNavTree = () => {
 
   // Smart panning with boundaries
   const { pan, setPan, panLimits } = useSmartPanning(pages, zoom, svgRef, isMobile);
+
+  // Graph traversal: press-hold-drag to navigate related pages
+  const {
+    traversalState,
+    handleTraversalPointerDown,
+    handleTraversalPointerMove,
+    handleTraversalPointerUp,
+    cancelTraversal,
+  } = useGraphTraversal({
+    pages,
+    activePage,
+    zoom,
+    pan,
+    svgRef,
+    onNavigate: (pageInfo) => loadNewPage(pageInfo),
+    isMobile,
+  });
 
   // Pull to refresh functionality for mobile
   const { isRefreshing: isPullRefreshing, pullDistance, bindRefresh } = usePullToRefresh(
@@ -2217,17 +2236,35 @@ const WikiNavTree = () => {
             <div className="h-full flex flex-col">
               {/* Graph SVG container */}
               <div className="flex-1 overflow-hidden">
-                <svg 
-                  ref={svgRef} 
-                  width="100%" 
-                  height="100%" 
-                  onWheel={handleWheel} 
-                  onMouseDown={handleMouseDown}
-                  onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={() => lastPinchDistance.current = null}
-                  style={{ 
-                    cursor: isDragging ? 'grabbing' : 'grab',
+                <svg
+                  ref={svgRef}
+                  width="100%"
+                  height="100%"
+                  onWheel={handleWheel}
+                  onMouseDown={(e) => {
+                    handleTraversalPointerDown(e);
+                    if (!traversalState) handleMouseDown(e);
+                  }}
+                  onMouseMove={(e) => {
+                    handleTraversalPointerMove(e);
+                  }}
+                  onMouseUp={(e) => {
+                    handleTraversalPointerUp(e);
+                  }}
+                  onTouchStart={(e) => {
+                    handleTraversalPointerDown(e);
+                    if (!traversalState) handleTouchStart(e);
+                  }}
+                  onTouchMove={(e) => {
+                    handleTraversalPointerMove(e);
+                    if (!traversalState) handleTouchMove(e);
+                  }}
+                  onTouchEnd={() => {
+                    handleTraversalPointerUp();
+                    lastPinchDistance.current = null;
+                  }}
+                  style={{
+                    cursor: traversalState ? 'none' : isDragging ? 'grabbing' : 'grab',
                     fontSize: isMobile ? '0.6rem' : 'inherit',
                     touchAction: isMobile ? 'pan-x pan-y' : 'none'
                   }}
@@ -2262,6 +2299,91 @@ const WikiNavTree = () => {
                       )
                     ))}
                     {renderSeeAlsoNodes()}
+
+                    {/* Traversal overlay: radial related nodes on press-hold */}
+                    {traversalState && (
+                      <>
+                        {/* Dim background pulse on source node */}
+                        <circle
+                          cx={traversalState.sourceNode.x}
+                          cy={traversalState.sourceNode.y}
+                          r={isMobile ? 30 : 50}
+                          fill="rgba(59, 130, 246, 0.15)"
+                          stroke="rgba(59, 130, 246, 0.4)"
+                          strokeWidth="2"
+                          className="animate-pulse"
+                        />
+
+                        {/* Edges from source to related nodes */}
+                        {traversalState.relatedNodes.map(rn => (
+                          <line
+                            key={`trav-edge-${rn.id}`}
+                            x1={traversalState.sourceNode.x}
+                            y1={traversalState.sourceNode.y}
+                            x2={rn.x}
+                            y2={rn.y}
+                            stroke={traversalState.hoveredNode?.id === rn.id ? '#3b82f6' : '#475569'}
+                            strokeWidth={traversalState.hoveredNode?.id === rn.id ? 2.5 : 1}
+                            strokeDasharray={traversalState.hoveredNode?.id === rn.id ? 'none' : '4 3'}
+                            opacity={traversalState.hoveredNode?.id === rn.id ? 1 : 0.5}
+                            style={{ transition: 'all 0.15s ease-out' }}
+                          />
+                        ))}
+
+                        {/* Related nodes */}
+                        {traversalState.relatedNodes.map(rn => {
+                          const isHovered = traversalState.hoveredNode?.id === rn.id;
+                          const nodeScale = isMobile ? 0.45 : 0.75;
+                          const r = (isHovered ? 38 : 30) * nodeScale;
+
+                          // Break title into lines
+                          const words = rn.title.split(' ');
+                          const lines = words.reduce((acc, word) => {
+                            const last = acc[acc.length - 1];
+                            if (!last || (last + ' ' + word).length > 12) acc.push(word);
+                            else acc[acc.length - 1] = `${last} ${word}`;
+                            return acc;
+                          }, []);
+
+                          return (
+                            <g key={`trav-node-${rn.id}`} transform={`translate(${rn.x},${rn.y})`}>
+                              {/* Glow on hover */}
+                              {isHovered && (
+                                <circle
+                                  r={r + 6}
+                                  fill="none"
+                                  stroke="#3b82f6"
+                                  strokeWidth="2"
+                                  opacity="0.6"
+                                  className="animate-pulse"
+                                />
+                              )}
+                              <circle
+                                r={r}
+                                fill={isHovered ? '#1e40af' : '#1e293b'}
+                                stroke={isHovered ? '#60a5fa' : '#475569'}
+                                strokeWidth={isHovered ? 2 : 1}
+                                style={{ transition: 'all 0.15s ease-out' }}
+                              />
+                              <text
+                                textAnchor="middle"
+                                dy={r + 14 * nodeScale}
+                                fill={isHovered ? '#93c5fd' : '#94a3b8'}
+                                fontSize={isMobile ? 7 : 11}
+                                fontWeight={isHovered ? 'bold' : 'normal'}
+                                style={{ transition: 'all 0.15s ease-out', pointerEvents: 'none' }}
+                              >
+                                {lines.map((line, i) => (
+                                  <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>
+                                    {line}
+                                  </tspan>
+                                ))}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </>
+                    )}
                   </g>
 
                 </svg>
@@ -2348,6 +2470,24 @@ const WikiNavTree = () => {
         </div>
       </div>
   
+      {/* Node Shelf - collapsed at bottom, shows selected node */}
+      {pages.length > 0 && (
+        <NodeShelf
+          activePage={activePage}
+          pages={pages}
+          onNodeSelect={(pageInfo) => {
+            // If it's an existing page in the tree, just click it
+            const existing = pages.find(p => p.title === pageInfo.title);
+            if (existing) {
+              handleNodeClick(existing);
+            } else {
+              loadNewPage({ title: pageInfo.title, url: pageInfo.url || `https://en.wikipedia.org/wiki/${pageInfo.title.replace(/\s+/g, '_')}` });
+            }
+          }}
+          isMobile={isMobile}
+        />
+      )}
+
       {/* Footer */}
       <div className="w-full bg-white border-t py-1 px-4 flex justify-center items-center">
         <a 
