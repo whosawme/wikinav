@@ -786,8 +786,7 @@ const WikiNavTree = () => {
 
   const [treePaneMode, setTreePaneMode] = useState('normal'); // 'collapsed', 'normal', 'expanded'
 
-  const [touchStart, setTouchStart] = useState(0);
-  const [touchEnd, setTouchEnd] = useState(0);
+  const swipeStartRef = useRef({ x: 0, y: 0 });
 
   // Refs - declare before using in hooks
   const containerRef = useRef(null);
@@ -862,16 +861,21 @@ const WikiNavTree = () => {
   );
 
   const handleTouchStartSwipe = (e) => {
-    setTouchStart(e.touches[0].clientX);
+    swipeStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
   };
 
   const handleTouchEndSwipe = (e) => {
     const endX = e.changedTouches[0].clientX;
-    setTouchEnd(endX);
-    const swipeDistance = touchStart - endX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = swipeStartRef.current.x - endX;
+    const dy = Math.abs(swipeStartRef.current.y - endY);
 
-    if (Math.abs(swipeDistance) > 80) { // Min swipe distance
-      if (swipeDistance > 0) {
+    // Only trigger swipe if horizontal movement is large and mostly horizontal
+    if (Math.abs(dx) > 80 && Math.abs(dx) > dy * 1.5) {
+      if (dx > 0) {
         handleForward();
       } else {
         handleBack();
@@ -1631,23 +1635,49 @@ const WikiNavTree = () => {
     });
   };
 
+  // Navigate to a wiki link by href
+  const navigateWikiLink = async (href) => {
+    if (href && href.startsWith('/wiki/')) {
+      const title = href.replace('/wiki/', '');
+      if (!title.startsWith('File:') && !title.startsWith('Category:')) {
+        const url = `https://en.wikipedia.org${href}`;
+        if (activePage) {
+          await loadNewPage({ title, url });
+        } else {
+          await loadNewPage({ title, url, isInitialLoad: true });
+        }
+      }
+    }
+  };
+
   // Event handlers for page navigation and search
   const handleWikiLinkClick = async (e) => {
-    // Walk up from the tapped element to find the nearest <a> tag
     const anchor = e.target.closest('a');
     if (anchor) {
       e.preventDefault();
-      const href = anchor.getAttribute('href');
-      if (href && href.startsWith('/wiki/')) {
-        const title = href.replace('/wiki/', '');
-        if (!title.startsWith('File:') && !title.startsWith('Category:')) {
-          const url = `https://en.wikipedia.org${href}`;
-          if (activePage) {
-            await loadNewPage({ title, url });
-          } else {
-            await loadNewPage({ title, url, isInitialLoad: true });
-          }
-        }
+      await navigateWikiLink(anchor.getAttribute('href'));
+    }
+  };
+
+  // Touch-based tap detection for wiki links (more reliable on mobile than click)
+  const wikiTouchStartRef = useRef({ x: 0, y: 0, target: null });
+  const handleWikiTouchStart = (e) => {
+    wikiTouchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      target: e.target,
+    };
+  };
+  const handleWikiTouchEnd = (e) => {
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - wikiTouchStartRef.current.x;
+    const dy = touch.clientY - wikiTouchStartRef.current.y;
+    // Only treat as tap if finger barely moved (< 10px)
+    if (dx * dx + dy * dy < 100) {
+      const anchor = wikiTouchStartRef.current.target?.closest('a');
+      if (anchor) {
+        e.preventDefault();
+        navigateWikiLink(anchor.getAttribute('href'));
       }
     }
   };
@@ -2272,7 +2302,7 @@ const WikiNavTree = () => {
                   style={{
                     cursor: isTraversing ? 'none' : isDragging ? 'grabbing' : 'grab',
                     fontSize: isMobile ? '0.6rem' : 'inherit',
-                    touchAction: isMobile ? 'pan-x pan-y' : 'none'
+                    touchAction: 'none'
                   }}
                   className="transition-all duration-200"
                 >
@@ -2455,11 +2485,17 @@ const WikiNavTree = () => {
             </div>
   
           {/* Wiki content */}
-          <div 
+          <div
             className={`flex-1 overflow-auto bg-white ${isMobile ? 'mx-0 mb-0 border-t' : 'mx-4 mb-1 border rounded-lg shadow-sm'}`}
             onClick={handleWikiLinkClick}
-            onTouchStart={handleTouchStartSwipe}
-            onTouchEnd={handleTouchEndSwipe}
+            onTouchStart={(e) => {
+              handleWikiTouchStart(e);
+              handleTouchStartSwipe(e);
+            }}
+            onTouchEnd={(e) => {
+              handleWikiTouchEnd(e);
+              handleTouchEndSwipe(e);
+            }}
             onScroll={handleWikiScroll}
           >
             {loading ? (
@@ -2467,9 +2503,9 @@ const WikiNavTree = () => {
                 <div className="text-xl text-gray-600 animate-pulse">Loading...</div>
               </div>
             ) : (
-              <div 
-                dangerouslySetInnerHTML={{ __html: wikiContent }} 
-                className={`wiki-content prose max-w-none ${isMobile ? 'p-2' : 'p-4'}`} 
+              <div
+                dangerouslySetInnerHTML={{ __html: wikiContent }}
+                className={`wiki-content prose max-w-none ${isMobile ? 'p-2 pb-16' : 'p-4'}`}
               />
             )}
           </div>
