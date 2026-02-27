@@ -524,11 +524,11 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage, onNodeSelect, is
             })}
             {networkNodes.map(node => (
               <g key={`network-node-${node.id}`} transform={`translate(${node.x},${node.y})`} onClick={() => handleNetworkNodeClick(node)} style={{ cursor: 'pointer' }}>
-                <circle r="40" fill={node.isActive ? '#3b82f6' : '#fff'} stroke={node.isActive ? '#1d4ed8' : '#64748b'} strokeWidth="2" />
+                <circle r={isMobile ? 24 : 40} fill={node.isActive ? '#3b82f6' : '#fff'} stroke={node.isActive ? '#1d4ed8' : '#64748b'} strokeWidth={isMobile ? 1.5 : 2} />
                 {node.thumbnail && (
-                  <image x="-35" y="-35" width="70" height="70" href={node.thumbnail} clipPath="url(#network-circle-clip)" preserveAspectRatio="xMidYMid slice" />
+                  <image x={isMobile ? -21 : -35} y={isMobile ? -21 : -35} width={isMobile ? 42 : 70} height={isMobile ? 42 : 70} href={node.thumbnail} clipPath="url(#network-circle-clip)" preserveAspectRatio="xMidYMid slice" />
                 )}
-                <text textAnchor="middle" dy="55" fill="#1f2937" className="text-sm font-medium" style={{ pointerEvents: 'none' }}>
+                <text textAnchor="middle" dy={isMobile ? 34 : 55} fill="#1f2937" fontSize={isMobile ? 8 : 14} style={{ pointerEvents: 'none' }}>
                   {node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title}
                 </text>
               </g>
@@ -536,7 +536,7 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage, onNodeSelect, is
             <TraversalOverlay traversalState={netTraversalState} isMobile={isMobile} />
           </g>
           <defs>
-            <clipPath id="network-circle-clip"><circle r="35" /></clipPath>
+            <clipPath id="network-circle-clip"><circle r={isMobile ? 21 : 35} /></clipPath>
           </defs>
         </svg>
       </div>
@@ -551,8 +551,7 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, i
   const safeId = `circle-clip-${title.replace(/[^a-zA-Z0-9]/g, '-')}`;
   const gradientId = `node-gradient-${safeId}`;
   
-  // Scale everything down by 50% for mobile
-  const scale = isMobile ? 0.5 : 1;
+  const scale = isMobile ? 0.4 : 1;
   const radius = 40 * scale;
   const outerRadius = 45 * scale;
   const imageSize = 80 * scale;
@@ -674,26 +673,25 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, i
       return acc;
     }, []);
 
-    const textWidth = 80; 
-    const textHeight = lines.length * 18 + 10; 
+    const textWidth = 80 * scale;
+    const textHeight = (lines.length * 18 + 10) * scale;
 
     return (
       <>
-       
-        <rect 
-          x={-textWidth / 2} 
-          y={-17} 
-          width={textWidth} 
-          height={textHeight} 
-          rx="6"  
-          fill="rgba(0, 0, 0, 0.3)" 
+        <rect
+          x={-textWidth / 2}
+          y={outerRadius - 4 * scale}
+          width={textWidth}
+          height={textHeight}
+          rx={6 * scale}
+          fill="rgba(0, 0, 0, 0.3)"
         />
 
-        
-        <text 
-          textAnchor="middle" 
-          dy="60"
+        <text
+          textAnchor="middle"
+          dy={outerRadius + 12 * scale}
           fill="white"
+          fontSize={isMobile ? 6 : 14}
           className={`text-sm ${isActive ? 'font-bold text-blue-400' : 'text-white'} transition-all duration-200`}
         >
           {lines.map((line, i) => (
@@ -1101,13 +1099,19 @@ const WikiNavTree = () => {
   const CollapseButton = ({ mode, onClick, isMobile }) => (
     <button
       onClick={onClick}
-      className={`absolute bg-white shadow-md p-2 border ${isMobile ? 'rounded-full' : 'rounded-r-full border-l-0'}`}
+      className={`absolute bg-white shadow-lg border ${isMobile ? 'rounded-full p-1.5' : 'rounded-r-full border-l-0 p-2'}`}
       style={{
         ...(isMobile ? {
           left: '50%',
-          bottom: '-20px',  // Position at bottom of tree pane
+          bottom: '-16px',
           transform: 'translateX(-50%)',
           zIndex: 50,
+          width: '36px',
+          height: '36px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          touchAction: 'manipulation',
         } : {
           top: '50%',
           right: '-20px',
@@ -1117,7 +1121,7 @@ const WikiNavTree = () => {
       }}
     >
       <ChevronLeft
-        size={24}
+        size={isMobile ? 18 : 24}
         className={`transition-transform duration-200 ${
           isMobile
             ? mode === 'collapsed' ? '-rotate-90' : 'rotate-90'
@@ -1145,16 +1149,20 @@ const WikiNavTree = () => {
 
   // Update tree pane toggle handler
   const handleTreePaneToggle = () => {
-    switch(treePaneMode) {
-      case 'collapsed':
-        setTreePaneMode('normal');
-        break;
-      case 'normal':
-        setTreePaneMode('expanded');
-        break;
-      case 'expanded':
-        setTreePaneMode('collapsed');
-        break;
+    if (isMobile) {
+      setTreePaneMode(treePaneMode === 'collapsed' ? 'normal' : 'collapsed');
+    } else {
+      switch(treePaneMode) {
+        case 'collapsed':
+          setTreePaneMode('normal');
+          break;
+        case 'normal':
+          setTreePaneMode('expanded');
+          break;
+        case 'expanded':
+          setTreePaneMode('collapsed');
+          break;
+      }
     }
   };
     
@@ -2205,8 +2213,8 @@ const WikiNavTree = () => {
           width: getTreePaneWidth(),
           height: isMobile
             ? treePaneMode === 'collapsed'
-              ? '0.5rem'
-              : '21%'
+              ? '1.5rem'
+              : '25%'
             : '100%',
           transition: 'all 0.3s ease-in-out',
           position: 'relative',
@@ -2417,8 +2425,8 @@ const WikiNavTree = () => {
           style={{ 
             height: isMobile 
               ? isTreePaneCollapsed 
-                ? 'calc(100% - 4rem)'  // Adjust for top nav height
-                : 'calc(79% - 4rem)' // 79% height minus top nav
+                ? 'calc(100% - 5.5rem)'
+                : 'calc(75% - 4rem)'
               : '100%',
             minWidth: isMobile ? 'unset' : '400px',
             transition: 'all 0.3s ease-in-out'

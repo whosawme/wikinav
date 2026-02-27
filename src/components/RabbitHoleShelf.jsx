@@ -27,7 +27,7 @@ const RabbitHoleShelf = ({
   const [rabbitLinks, setRabbitLinks] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [error, setError] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Topic extraction settings
   const [topicMethod, setTopicMethod] = useState('tfidf'); // 'tfidf' | 'transformer'
@@ -453,42 +453,44 @@ const RabbitHoleShelf = ({
       style={{ backgroundColor: '#1a1a2e' }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700" style={{ backgroundColor: '#16213e' }}>
-        <div className="flex items-center space-x-3">
-          <Rabbit className="text-purple-400" size={28} />
-          <h2 className="text-xl font-bold text-white">The Rabbit Hole</h2>
+      <div className={`flex items-center justify-between ${isMobile ? 'p-2' : 'p-4'} border-b border-gray-700`} style={{ backgroundColor: '#16213e' }}>
+        <div className="flex items-center space-x-2 min-w-0 flex-1">
+          <Rabbit className="text-purple-400 flex-shrink-0" size={isMobile ? 20 : 28} />
+          <h2 className={`${isMobile ? 'text-sm' : 'text-xl'} font-bold text-white truncate`}>Rabbit Hole</h2>
           {currentPage && (
-            <span className="text-gray-400 text-sm ml-2">
-              Starting from: {currentPage.title}
+            <span className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} truncate min-w-0`}>
+              — {currentPage.title}
             </span>
           )}
         </div>
         <button
           onClick={onClose}
-          className="p-2 rounded hover:bg-gray-700 transition-colors text-gray-300"
+          className="p-2 rounded hover:bg-gray-700 transition-colors text-gray-300 flex-shrink-0"
           title="Close"
         >
-          <X size={24} />
+          <X size={isMobile ? 18 : 24} />
         </button>
       </div>
 
       {/* Main content area */}
-      <div className="flex h-[calc(100%-64px)] relative">
-        {/* Sidebar toggle button on mobile */}
-        {isMobile && (
+      <div className={`flex ${isMobile ? 'h-[calc(100%-44px)]' : 'h-[calc(100%-64px)]'} relative`}>
+        {/* Sidebar toggle button on mobile - shown when sidebar is closed */}
+        {isMobile && !sidebarOpen && (
           <button
-            onClick={() => setSidebarOpen(prev => !prev)}
-            className="absolute top-2 left-2 z-10 p-2 rounded-lg bg-purple-900/80 text-purple-300 border border-purple-700"
-            style={{ display: sidebarOpen ? 'none' : 'flex' }}
+            onClick={() => setSidebarOpen(true)}
+            className="absolute top-2 left-2 z-20 p-2.5 rounded-lg bg-purple-900/90 text-purple-300 border border-purple-600 shadow-lg"
           >
-            <ChevronRight size={18} />
+            <ChevronRight size={20} />
           </button>
         )}
 
         {/* Left sidebar - Analysis controls */}
         <div
-          className={`${isMobile ? 'absolute inset-y-0 left-0 z-10' : ''} ${isMobile ? (sidebarOpen ? 'w-72' : 'w-0 overflow-hidden') : 'w-80'} border-r border-gray-700 flex flex-col transition-all duration-300`}
-          style={{ backgroundColor: '#16213e' }}
+          className={`${isMobile ? 'absolute inset-y-0 left-0 z-10' : ''} border-r border-gray-700 flex flex-col transition-all duration-300 overflow-hidden`}
+          style={{
+            backgroundColor: '#16213e',
+            width: isMobile ? (sidebarOpen ? '65%' : '0px') : '320px',
+          }}
         >
           {/* Tab buttons */}
           <div className="flex border-b border-gray-700">
@@ -525,19 +527,19 @@ const RabbitHoleShelf = ({
           </div>
 
           {/* Selected node info */}
-          <div className="p-4 border-b border-gray-700">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selected</h3>
+          <div className={`${isMobile ? 'p-2' : 'p-4'} border-b border-gray-700`}>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Selected</h3>
             {selectedNode ? (
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
                 {selectedNode.thumbnail ? (
                   <img
                     src={selectedNode.thumbnail}
                     alt={selectedNode.title}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-purple-500"
+                    className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} rounded-full object-cover border-2 border-purple-500`}
                   />
                 ) : (
-                  <div className="w-12 h-12 rounded-full bg-purple-900 flex items-center justify-center border-2 border-purple-500">
-                    <span className="text-purple-300 text-lg font-bold">
+                  <div className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} rounded-full bg-purple-900 flex items-center justify-center border-2 border-purple-500`}>
+                    <span className={`text-purple-300 ${isMobile ? 'text-sm' : 'text-lg'} font-bold`}>
                       {selectedNode.title.charAt(0)}
                     </span>
                   </div>
@@ -618,11 +620,11 @@ const RabbitHoleShelf = ({
           )}
 
           {/* Analysis action */}
-          <div className="p-4 border-b border-gray-700">
+          <div className={`${isMobile ? 'p-2' : 'p-4'} border-b border-gray-700`}>
             <button
               onClick={activeTab === 'dig' ? performDigAnalysis : performTopicAnalysis}
               disabled={!selectedNode || isAnalyzing}
-              className={`w-full py-3 px-4 rounded-lg font-medium transition-all ${
+              className={`w-full ${isMobile ? 'py-2 px-3 text-sm' : 'py-3 px-4'} rounded-lg font-medium transition-all ${
                 !selectedNode || isAnalyzing
                   ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                   : 'bg-purple-600 hover:bg-purple-500 text-white'
@@ -902,7 +904,13 @@ const RabbitHoleShelf = ({
                   })}
 
                   {/* Render nodes */}
-                  {rabbitPages.map(node => (
+                  {rabbitPages.map(node => {
+                    const s = isMobile ? 0.6 : 1;
+                    const rootR = 40 * s;
+                    const childR = 30 * s;
+                    const nr = node.isRoot ? rootR : childR;
+                    const imgR = node.isRoot ? 35 * s : 25 * s;
+                    return (
                     <g
                       key={`rabbit-node-${node.id}`}
                       transform={`translate(${node.x},${node.y})`}
@@ -911,21 +919,19 @@ const RabbitHoleShelf = ({
                       style={{ cursor: node.explored ? 'pointer' : 'zoom-in' }}
                       filter={selectedNode?.id === node.id ? 'url(#glow)' : undefined}
                     >
-                      {/* Node circle */}
                       <circle
-                        r={node.isRoot ? 40 : 30}
+                        r={nr}
                         fill={node.isRoot ? '#7c3aed' : node.explored ? '#4c1d95' : '#1e1b4b'}
                         stroke={selectedNode?.id === node.id ? '#a78bfa' : node.isRoot ? '#a78bfa' : '#6b21a8'}
                         strokeWidth={selectedNode?.id === node.id ? 3 : 2}
                       />
 
-                      {/* Thumbnail or initial */}
                       {node.thumbnail ? (
                         <image
-                          x={node.isRoot ? -35 : -25}
-                          y={node.isRoot ? -35 : -25}
-                          width={node.isRoot ? 70 : 50}
-                          height={node.isRoot ? 70 : 50}
+                          x={-imgR}
+                          y={-imgR}
+                          width={imgR * 2}
+                          height={imgR * 2}
                           href={node.thumbnail}
                           clipPath="url(#rabbit-circle-clip)"
                           preserveAspectRatio="xMidYMid slice"
@@ -935,37 +941,36 @@ const RabbitHoleShelf = ({
                           textAnchor="middle"
                           dy="6"
                           fill="#a78bfa"
-                          fontSize={node.isRoot ? 18 : 14}
+                          fontSize={(node.isRoot ? 18 : 14) * s}
                           fontWeight="bold"
                         >
                           {node.title.charAt(0).toUpperCase()}
                         </text>
                       )}
 
-                      {/* Label */}
                       <text
                         textAnchor="middle"
-                        dy={node.isRoot ? 60 : 50}
+                        dy={nr + 14 * s}
                         fill="#e2e8f0"
-                        fontSize="11"
+                        fontSize={isMobile ? 8 : 11}
                         className="pointer-events-none"
                       >
                         {node.title.length > 18 ? node.title.substring(0, 16) + '...' : node.title}
                       </text>
 
-                      {/* Explored indicator */}
                       {node.explored && !node.isRoot && (
                         <circle
-                          cx={node.isRoot ? 30 : 22}
-                          cy={node.isRoot ? -30 : -22}
-                          r="6"
+                          cx={nr * 0.73}
+                          cy={-nr * 0.73}
+                          r={isMobile ? 4 : 6}
                           fill="#22c55e"
                           stroke="#0f0f23"
                           strokeWidth="2"
                         />
                       )}
                     </g>
-                  ))}
+                    );
+                  })}
 
                   {/* Traversal overlay */}
                   {rabbitTraversalState && (
