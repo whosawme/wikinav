@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { X, Rabbit, Brain, Network, Loader2, ChevronRight, ExternalLink, Zap, Cpu } from 'lucide-react';
+import { X, Rabbit, Brain, Network, Loader2, ChevronRight, ChevronLeft, ExternalLink, Zap, Cpu } from 'lucide-react';
 import { parseSeeAlsoLinks } from '../services/wikipediaApi';
+import useGraphTraversal from '../hooks/useGraphTraversal';
 import {
   extractTopicsTFIDF,
   extractTopicsTransformer,
@@ -16,7 +17,8 @@ const RabbitHoleShelf = ({
   onClose,
   currentPage,
   onLoadPage,
-  loadPageData
+  loadPageData,
+  isMobile = false
 }) => {
   const [activeTab, setActiveTab] = useState('dig'); // 'dig' | 'topics'
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -25,6 +27,7 @@ const RabbitHoleShelf = ({
   const [rabbitLinks, setRabbitLinks] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [error, setError] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
 
   // Topic extraction settings
   const [topicMethod, setTopicMethod] = useState('tfidf'); // 'tfidf' | 'transformer'
@@ -37,6 +40,25 @@ const RabbitHoleShelf = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const lastPinchRef = useRef(null);
+
+  // Press-hold traversal for rabbit hole graph
+  const {
+    traversalState: rabbitTraversalState,
+    isTraversing: rabbitIsTraversing,
+    handleTraversalPointerDown: rabbitTraversalDown,
+    handleTraversalPointerMove: rabbitTraversalMove,
+    handleTraversalPointerUp: rabbitTraversalUp,
+  } = useGraphTraversal({
+    pages: rabbitPages,
+    zoom,
+    pan,
+    svgRef: canvasRef,
+    onNavigate: (pageInfo) => {
+      if (onLoadPage) onLoadPage({ title: pageInfo.title, url: pageInfo.url });
+    },
+    isMobile,
+  });
 
   // Initialize with current page when opened
   useEffect(() => {
@@ -376,20 +398,51 @@ const RabbitHoleShelf = ({
   };
 
   const handleMouseDown = (e) => {
-    if (e.button === 0 && e.target.tagName === 'svg') {
+    rabbitTraversalDown(e);
+    if (e.button === 0) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
   };
 
   const handleMouseMove = (e) => {
+    if (rabbitIsTraversing) { rabbitTraversalMove(e); return; }
     if (isDragging) {
       setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
     }
   };
 
   const handleMouseUp = () => {
+    rabbitTraversalUp();
     setIsDragging(false);
+  };
+
+  // Touch handlers for mobile
+  const handleTouchStart = (e) => {
+    rabbitTraversalDown(e);
+    if (e.touches.length === 1) {
+      setDragStart({ x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y });
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (rabbitIsTraversing) { rabbitTraversalMove(e); return; }
+    if (e.touches.length === 2) {
+      const t1 = e.touches[0], t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      if (lastPinchRef.current) {
+        const delta = dist - lastPinchRef.current;
+        setZoom(z => Math.min(Math.max(0.3, z + delta * 0.01), 3));
+      }
+      lastPinchRef.current = dist;
+    } else if (e.touches.length === 1) {
+      setPan({ x: e.touches[0].clientX - dragStart.x, y: e.touches[0].clientY - dragStart.y });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    rabbitTraversalUp();
+    lastPinchRef.current = null;
   };
 
   return (
@@ -420,11 +473,33 @@ const RabbitHoleShelf = ({
       </div>
 
       {/* Main content area */}
-      <div className="flex h-[calc(100%-64px)]">
+      <div className="flex h-[calc(100%-64px)] relative">
+        {/* Sidebar toggle button on mobile */}
+        {isMobile && (
+          <button
+            onClick={() => setSidebarOpen(prev => !prev)}
+            className="absolute top-2 left-2 z-10 p-2 rounded-lg bg-purple-900/80 text-purple-300 border border-purple-700"
+            style={{ display: sidebarOpen ? 'none' : 'flex' }}
+          >
+            <ChevronRight size={18} />
+          </button>
+        )}
+
         {/* Left sidebar - Analysis controls */}
-        <div className="w-80 border-r border-gray-700 flex flex-col" style={{ backgroundColor: '#16213e' }}>
+        <div
+          className={`${isMobile ? 'absolute inset-y-0 left-0 z-10' : ''} ${isMobile ? (sidebarOpen ? 'w-72' : 'w-0 overflow-hidden') : 'w-80'} border-r border-gray-700 flex flex-col transition-all duration-300`}
+          style={{ backgroundColor: '#16213e' }}
+        >
           {/* Tab buttons */}
           <div className="flex border-b border-gray-700">
+            {isMobile && (
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="py-3 px-2 text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('dig')}
               className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
@@ -777,9 +852,13 @@ const RabbitHoleShelf = ({
                 height="100%"
                 onWheel={handleWheel}
                 onMouseDown={handleMouseDown}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
                 style={{
-                  cursor: isDragging ? 'grabbing' : 'grab',
-                  backgroundColor: '#0f0f23'
+                  cursor: rabbitIsTraversing ? 'none' : isDragging ? 'grabbing' : 'grab',
+                  backgroundColor: '#0f0f23',
+                  touchAction: 'none'
                 }}
               >
                 {/* Grid pattern for visual depth */}
@@ -887,6 +966,73 @@ const RabbitHoleShelf = ({
                       )}
                     </g>
                   ))}
+
+                  {/* Traversal overlay */}
+                  {rabbitTraversalState && (
+                    <>
+                      <circle
+                        cx={rabbitTraversalState.sourceNode.x}
+                        cy={rabbitTraversalState.sourceNode.y}
+                        r={isMobile ? 30 : 50}
+                        fill="rgba(147, 51, 234, 0.15)"
+                        stroke="rgba(147, 51, 234, 0.4)"
+                        strokeWidth="2"
+                        className="animate-pulse"
+                      />
+                      {rabbitTraversalState.relatedNodes.map(rn => (
+                        <line
+                          key={`rh-trav-edge-${rn.id}`}
+                          x1={rabbitTraversalState.sourceNode.x}
+                          y1={rabbitTraversalState.sourceNode.y}
+                          x2={rn.x}
+                          y2={rn.y}
+                          stroke={rabbitTraversalState.hoveredNode?.id === rn.id ? '#a78bfa' : '#6b21a8'}
+                          strokeWidth={rabbitTraversalState.hoveredNode?.id === rn.id ? 2.5 : 1}
+                          strokeDasharray={rabbitTraversalState.hoveredNode?.id === rn.id ? 'none' : '4 3'}
+                          opacity={rabbitTraversalState.hoveredNode?.id === rn.id ? 1 : 0.5}
+                          style={{ transition: 'all 0.15s ease-out' }}
+                        />
+                      ))}
+                      {rabbitTraversalState.relatedNodes.map(rn => {
+                        const isHovered = rabbitTraversalState.hoveredNode?.id === rn.id;
+                        const nodeScale = isMobile ? 0.45 : 0.75;
+                        const r = (isHovered ? 38 : 30) * nodeScale;
+                        const words = rn.title.split(' ');
+                        const lines = words.reduce((acc, word) => {
+                          const last = acc[acc.length - 1];
+                          if (!last || (last + ' ' + word).length > 12) acc.push(word);
+                          else acc[acc.length - 1] = `${last} ${word}`;
+                          return acc;
+                        }, []);
+                        return (
+                          <g key={`rh-trav-node-${rn.id}`} transform={`translate(${rn.x},${rn.y})`}>
+                            {isHovered && (
+                              <circle r={r + 6} fill="none" stroke="#a78bfa" strokeWidth="2" opacity="0.6" className="animate-pulse" />
+                            )}
+                            <circle
+                              r={r}
+                              fill={isHovered ? '#7c3aed' : '#1e1b4b'}
+                              stroke={isHovered ? '#a78bfa' : '#6b21a8'}
+                              strokeWidth={isHovered ? 2 : 1}
+                              style={{ transition: 'all 0.15s ease-out' }}
+                            />
+                            <text
+                              textAnchor="middle"
+                              dy={r + 14 * nodeScale}
+                              fill={isHovered ? '#c4b5fd' : '#94a3b8'}
+                              fontSize={isMobile ? 7 : 11}
+                              fontWeight={isHovered ? 'bold' : 'normal'}
+                              style={{ transition: 'all 0.15s ease-out', pointerEvents: 'none' }}
+                            >
+                              {lines.map((line, i) => (
+                                <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>{line}</tspan>
+                              ))}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </>
+                  )}
                 </g>
               </svg>
             </div>

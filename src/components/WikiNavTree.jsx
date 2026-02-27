@@ -232,7 +232,76 @@ const NetworkNodesIcon = ({ size = 20, className = "" }) => (
 );
 
 // Network View Panel Component
-const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
+const TraversalOverlay = ({ traversalState, isMobile }) => {
+  if (!traversalState) return null;
+  const nodeScale = isMobile ? 0.45 : 0.75;
+  return (
+    <>
+      <circle
+        cx={traversalState.sourceNode.x}
+        cy={traversalState.sourceNode.y}
+        r={isMobile ? 30 : 50}
+        fill="rgba(59, 130, 246, 0.15)"
+        stroke="rgba(59, 130, 246, 0.4)"
+        strokeWidth="2"
+        className="animate-pulse"
+      />
+      {traversalState.relatedNodes.map(rn => (
+        <line
+          key={`trav-edge-${rn.id}`}
+          x1={traversalState.sourceNode.x}
+          y1={traversalState.sourceNode.y}
+          x2={rn.x}
+          y2={rn.y}
+          stroke={traversalState.hoveredNode?.id === rn.id ? '#3b82f6' : '#475569'}
+          strokeWidth={traversalState.hoveredNode?.id === rn.id ? 2.5 : 1}
+          strokeDasharray={traversalState.hoveredNode?.id === rn.id ? 'none' : '4 3'}
+          opacity={traversalState.hoveredNode?.id === rn.id ? 1 : 0.5}
+          style={{ transition: 'all 0.15s ease-out' }}
+        />
+      ))}
+      {traversalState.relatedNodes.map(rn => {
+        const isHovered = traversalState.hoveredNode?.id === rn.id;
+        const r = (isHovered ? 38 : 30) * nodeScale;
+        const words = rn.title.split(' ');
+        const lines = words.reduce((acc, word) => {
+          const last = acc[acc.length - 1];
+          if (!last || (last + ' ' + word).length > 12) acc.push(word);
+          else acc[acc.length - 1] = `${last} ${word}`;
+          return acc;
+        }, []);
+        return (
+          <g key={`trav-node-${rn.id}`} transform={`translate(${rn.x},${rn.y})`}>
+            {isHovered && (
+              <circle r={r + 6} fill="none" stroke="#3b82f6" strokeWidth="2" opacity="0.6" className="animate-pulse" />
+            )}
+            <circle
+              r={r}
+              fill={isHovered ? '#1e40af' : '#1e293b'}
+              stroke={isHovered ? '#60a5fa' : '#475569'}
+              strokeWidth={isHovered ? 2 : 1}
+              style={{ transition: 'all 0.15s ease-out' }}
+            />
+            <text
+              textAnchor="middle"
+              dy={r + 14 * nodeScale}
+              fill={isHovered ? '#93c5fd' : '#94a3b8'}
+              fontSize={isMobile ? 7 : 11}
+              fontWeight={isHovered ? 'bold' : 'normal'}
+              style={{ transition: 'all 0.15s ease-out', pointerEvents: 'none' }}
+            >
+              {lines.map((line, i) => (
+                <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>{line}</tspan>
+              ))}
+            </text>
+          </g>
+        );
+      })}
+    </>
+  );
+};
+
+const NetworkViewPanel = ({ isOpen, onClose, pages, activePage, onNodeSelect, isMobile }) => {
   const networkSvgRef = React.useRef(null);
   const [networkZoom, setNetworkZoom] = React.useState(1);
   const [networkPan, setNetworkPan] = React.useState({ x: 0, y: 0 });
@@ -241,15 +310,30 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
   const simulationRef = React.useRef(null);
   const [networkNodes, setNetworkNodes] = React.useState([]);
   const [networkLinks, setNetworkLinks] = React.useState([]);
+  const lastPinchRef = React.useRef(null);
+
+  // Press-hold traversal
+  const {
+    traversalState: netTraversalState,
+    isTraversing: netIsTraversing,
+    handleTraversalPointerDown: netTraversalDown,
+    handleTraversalPointerMove: netTraversalMove,
+    handleTraversalPointerUp: netTraversalUp,
+  } = useGraphTraversal({
+    pages: networkNodes,
+    zoom: networkZoom,
+    pan: networkPan,
+    svgRef: networkSvgRef,
+    onNavigate: (pageInfo) => onNodeSelect?.(pageInfo),
+    isMobile,
+  });
 
   // Initialize network data when panel opens
   React.useEffect(() => {
     if (isOpen && pages.length > 0) {
-      // Filter out redirect pages from network view
       const nonRedirectPages = pages.filter(p => !p.isRedirect);
       const nonRedirectIds = new Set(nonRedirectPages.map(p => p.id));
 
-      // Clone the non-redirect pages data for network view
       const clonedNodes = nonRedirectPages.map(page => ({
         ...page,
         x: page.x || 0,
@@ -260,17 +344,12 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
         isActive: activePage && page.id === activePage.id
       }));
 
-      // Create links from parent-child relationships (only for non-redirect nodes)
       const links = [];
       nonRedirectPages.forEach(page => {
         if (page.children) {
           page.children.forEach(childId => {
-            // Only include link if child is also a non-redirect node
             if (nonRedirectIds.has(childId)) {
-              links.push({
-                source: page.id,
-                target: childId
-              });
+              links.push({ source: page.id, target: childId });
             }
           });
         }
@@ -279,7 +358,6 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
       setNetworkNodes(clonedNodes);
       setNetworkLinks(links);
 
-      // Start force simulation with cloned data
       setTimeout(() => {
         if (networkSvgRef.current) {
           runNetworkSimulation(clonedNodes, links);
@@ -287,7 +365,6 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
       }, 100);
     }
 
-    // Cleanup simulation when closing
     return () => {
       if (simulationRef.current) {
         simulationRef.current.stop();
@@ -300,10 +377,7 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
     const width = networkSvgRef.current.clientWidth;
     const height = networkSvgRef.current.clientHeight;
 
-    // Stop any existing simulation
-    if (simulationRef.current) {
-      simulationRef.current.stop();
-    }
+    if (simulationRef.current) simulationRef.current.stop();
 
     const simulation = d3.forceSimulation(nodes)
       .force('link', d3.forceLink(links).id(d => d.id).distance(150))
@@ -314,18 +388,13 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
       .force('y', d3.forceY(height / 2).strength(0.05));
 
     simulationRef.current = simulation;
-
-    simulation.on('tick', () => {
-      setNetworkNodes([...nodes]);
-    });
+    simulation.on('tick', () => setNetworkNodes([...nodes]));
   };
 
   const handleNetworkWheel = (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.1 : -0.1;
-      setNetworkZoom(z => Math.min(Math.max(0.3, z + delta), 3));
-    }
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+    setNetworkZoom(z => Math.min(Math.max(0.3, z + delta), 3));
   };
 
   const handleNetworkMouseDown = (e) => {
@@ -336,16 +405,45 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
   };
 
   const handleNetworkMouseMove = (e) => {
+    if (netIsTraversing) { netTraversalMove(e); return; }
     if (isDraggingNetwork) {
       setNetworkPan({ x: e.clientX - dragStartNetwork.x, y: e.clientY - dragStartNetwork.y });
     }
   };
 
-  const handleNetworkMouseUp = () => {
+  const handleNetworkMouseUp = (e) => {
+    netTraversalUp(e);
     setIsDraggingNetwork(false);
   };
 
-  // Fit network to view
+  // Touch handlers for mobile pan/zoom
+  const handleNetworkTouchStart = (e) => {
+    netTraversalDown(e);
+    if (e.touches.length === 1) {
+      setDragStartNetwork({ x: e.touches[0].clientX - networkPan.x, y: e.touches[0].clientY - networkPan.y });
+    }
+  };
+
+  const handleNetworkTouchMove = (e) => {
+    if (netIsTraversing) { netTraversalMove(e); return; }
+    if (e.touches.length === 2) {
+      const t1 = e.touches[0], t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      if (lastPinchRef.current) {
+        const delta = dist - lastPinchRef.current;
+        setNetworkZoom(z => Math.min(Math.max(0.3, z + delta * 0.01), 3));
+      }
+      lastPinchRef.current = dist;
+    } else if (e.touches.length === 1) {
+      setNetworkPan({ x: e.touches[0].clientX - dragStartNetwork.x, y: e.touches[0].clientY - dragStartNetwork.y });
+    }
+  };
+
+  const handleNetworkTouchEnd = () => {
+    netTraversalUp();
+    lastPinchRef.current = null;
+  };
+
   const fitNetwork = () => {
     if (networkSvgRef.current && networkNodes.length > 0) {
       const padding = 50;
@@ -354,18 +452,13 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
         maxX: Math.max(acc.maxX, node.x + 50),
         minY: Math.min(acc.minY, node.y - 50),
         maxY: Math.max(acc.maxY, node.y + 50)
-      }), { 
-        minX: networkNodes[0].x, 
-        maxX: networkNodes[0].x, 
-        minY: networkNodes[0].y, 
-        maxY: networkNodes[0].y 
-      });
+      }), { minX: networkNodes[0].x, maxX: networkNodes[0].x, minY: networkNodes[0].y, maxY: networkNodes[0].y });
 
       const svgWidth = networkSvgRef.current.clientWidth - padding * 2;
       const svgHeight = networkSvgRef.current.clientHeight - padding * 2;
       const graphWidth = bounds.maxX - bounds.minX;
       const graphHeight = bounds.maxY - bounds.minY;
-      
+
       const scale = Math.min(svgWidth / graphWidth, svgHeight / graphHeight, 2);
       setNetworkZoom(scale);
       setNetworkPan({
@@ -375,8 +468,13 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
     }
   };
 
+  const handleNetworkNodeClick = (node) => {
+    const original = pages.find(p => p.id === node.id);
+    if (original && onNodeSelect) onNodeSelect(original);
+  };
+
   return (
-    <div 
+    <div
       className={`fixed inset-y-0 right-0 w-full md:w-3/4 lg:w-2/3 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
         isOpen ? 'translate-x-0' : 'translate-x-full'
       }`}
@@ -387,100 +485,58 @@ const NetworkViewPanel = ({ isOpen, onClose, pages, activePage }) => {
       <div className="flex items-center justify-between p-4 border-b bg-gray-50">
         <h2 className="text-xl font-semibold text-gray-800">Network View</h2>
         <div className="flex items-center space-x-2">
-          <button
-            onClick={fitNetwork}
-            className="p-2 rounded hover:bg-gray-200 transition-colors"
-            title="Fit to View"
-          >
+          <button onClick={fitNetwork} className="p-2 rounded hover:bg-gray-200 transition-colors" title="Fit to View">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 3h4v4" />
-              <path d="M3 21h4v-4" />
-              <path d="M21 3h-4v4" />
-              <path d="M21 21h-4v-4" />
+              <path d="M3 3h4v4" /><path d="M3 21h4v-4" /><path d="M21 3h-4v4" /><path d="M21 21h-4v-4" />
               <circle cx="12" cy="12" r="1" fill="currentColor" />
             </svg>
           </button>
-          <button
-            onClick={onClose}
-            className="p-2 rounded hover:bg-gray-200 transition-colors"
-            title="Close"
-          >
+          <button onClick={onClose} className="p-2 rounded hover:bg-gray-200 transition-colors" title="Close">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
       </div>
 
       {/* Network SVG */}
-      <div className="h-full overflow-hidden">
+      <div className="h-[calc(100%-64px)] overflow-hidden">
         <svg
           ref={networkSvgRef}
           width="100%"
           height="100%"
           onWheel={handleNetworkWheel}
-          onMouseDown={handleNetworkMouseDown}
-          style={{ cursor: isDraggingNetwork ? 'grabbing' : 'grab' }}
+          onMouseDown={(e) => { netTraversalDown(e); handleNetworkMouseDown(e); }}
+          onTouchStart={handleNetworkTouchStart}
+          onTouchMove={handleNetworkTouchMove}
+          onTouchEnd={handleNetworkTouchEnd}
+          style={{ cursor: netIsTraversing ? 'none' : isDraggingNetwork ? 'grabbing' : 'grab', touchAction: 'none' }}
           className="bg-gray-50"
         >
           <g transform={`translate(${networkPan.x}, ${networkPan.y}) scale(${networkZoom})`}>
-            {/* Render edges */}
             {networkLinks.map((link, idx) => {
               const sourceNode = networkNodes.find(n => n.id === link.source.id || n.id === link.source);
               const targetNode = networkNodes.find(n => n.id === link.target.id || n.id === link.target);
               if (!sourceNode || !targetNode) return null;
-              
               return (
-                <line
-                  key={`network-link-${idx}`}
-                  x1={sourceNode.x}
-                  y1={sourceNode.y}
-                  x2={targetNode.x}
-                  y2={targetNode.y}
-                  stroke="#94a3b8"
-                  strokeWidth="2"
-                  opacity="0.6"
-                />
+                <line key={`network-link-${idx}`} x1={sourceNode.x} y1={sourceNode.y} x2={targetNode.x} y2={targetNode.y} stroke="#94a3b8" strokeWidth="2" opacity="0.6" />
               );
             })}
-            
-            {/* Render nodes */}
             {networkNodes.map(node => (
-              <g key={`network-node-${node.id}`} transform={`translate(${node.x},${node.y})`}>
-                <circle
-                  r="40"
-                  fill={node.isActive ? '#3b82f6' : '#fff'}
-                  stroke={node.isActive ? '#1d4ed8' : '#64748b'}
-                  strokeWidth="2"
-                />
+              <g key={`network-node-${node.id}`} transform={`translate(${node.x},${node.y})`} onClick={() => handleNetworkNodeClick(node)} style={{ cursor: 'pointer' }}>
+                <circle r="40" fill={node.isActive ? '#3b82f6' : '#fff'} stroke={node.isActive ? '#1d4ed8' : '#64748b'} strokeWidth="2" />
                 {node.thumbnail && (
-                  <image
-                    x="-35"
-                    y="-35"
-                    width="70"
-                    height="70"
-                    href={node.thumbnail}
-                    clipPath="url(#network-circle-clip)"
-                    preserveAspectRatio="xMidYMid slice"
-                  />
+                  <image x="-35" y="-35" width="70" height="70" href={node.thumbnail} clipPath="url(#network-circle-clip)" preserveAspectRatio="xMidYMid slice" />
                 )}
-                <text
-                  textAnchor="middle"
-                  dy="55"
-                  fill="#1f2937"
-                  className="text-sm font-medium"
-                >
+                <text textAnchor="middle" dy="55" fill="#1f2937" className="text-sm font-medium" style={{ pointerEvents: 'none' }}>
                   {node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title}
                 </text>
               </g>
             ))}
+            <TraversalOverlay traversalState={netTraversalState} isMobile={isMobile} />
           </g>
-          
           <defs>
-            <clipPath id="network-circle-clip">
-              <circle r="35" />
-            </clipPath>
+            <clipPath id="network-circle-clip"><circle r="35" /></clipPath>
           </defs>
         </svg>
       </div>
@@ -2337,89 +2393,7 @@ const WikiNavTree = () => {
                     {renderSeeAlsoNodes()}
 
                     {/* Traversal overlay: radial related nodes on press-hold */}
-                    {traversalState && (
-                      <>
-                        {/* Dim background pulse on source node */}
-                        <circle
-                          cx={traversalState.sourceNode.x}
-                          cy={traversalState.sourceNode.y}
-                          r={isMobile ? 30 : 50}
-                          fill="rgba(59, 130, 246, 0.15)"
-                          stroke="rgba(59, 130, 246, 0.4)"
-                          strokeWidth="2"
-                          className="animate-pulse"
-                        />
-
-                        {/* Edges from source to related nodes */}
-                        {traversalState.relatedNodes.map(rn => (
-                          <line
-                            key={`trav-edge-${rn.id}`}
-                            x1={traversalState.sourceNode.x}
-                            y1={traversalState.sourceNode.y}
-                            x2={rn.x}
-                            y2={rn.y}
-                            stroke={traversalState.hoveredNode?.id === rn.id ? '#3b82f6' : '#475569'}
-                            strokeWidth={traversalState.hoveredNode?.id === rn.id ? 2.5 : 1}
-                            strokeDasharray={traversalState.hoveredNode?.id === rn.id ? 'none' : '4 3'}
-                            opacity={traversalState.hoveredNode?.id === rn.id ? 1 : 0.5}
-                            style={{ transition: 'all 0.15s ease-out' }}
-                          />
-                        ))}
-
-                        {/* Related nodes */}
-                        {traversalState.relatedNodes.map(rn => {
-                          const isHovered = traversalState.hoveredNode?.id === rn.id;
-                          const nodeScale = isMobile ? 0.45 : 0.75;
-                          const r = (isHovered ? 38 : 30) * nodeScale;
-
-                          // Break title into lines
-                          const words = rn.title.split(' ');
-                          const lines = words.reduce((acc, word) => {
-                            const last = acc[acc.length - 1];
-                            if (!last || (last + ' ' + word).length > 12) acc.push(word);
-                            else acc[acc.length - 1] = `${last} ${word}`;
-                            return acc;
-                          }, []);
-
-                          return (
-                            <g key={`trav-node-${rn.id}`} transform={`translate(${rn.x},${rn.y})`}>
-                              {/* Glow on hover */}
-                              {isHovered && (
-                                <circle
-                                  r={r + 6}
-                                  fill="none"
-                                  stroke="#3b82f6"
-                                  strokeWidth="2"
-                                  opacity="0.6"
-                                  className="animate-pulse"
-                                />
-                              )}
-                              <circle
-                                r={r}
-                                fill={isHovered ? '#1e40af' : '#1e293b'}
-                                stroke={isHovered ? '#60a5fa' : '#475569'}
-                                strokeWidth={isHovered ? 2 : 1}
-                                style={{ transition: 'all 0.15s ease-out' }}
-                              />
-                              <text
-                                textAnchor="middle"
-                                dy={r + 14 * nodeScale}
-                                fill={isHovered ? '#93c5fd' : '#94a3b8'}
-                                fontSize={isMobile ? 7 : 11}
-                                fontWeight={isHovered ? 'bold' : 'normal'}
-                                style={{ transition: 'all 0.15s ease-out', pointerEvents: 'none' }}
-                              >
-                                {lines.map((line, i) => (
-                                  <tspan key={i} x="0" dy={i === 0 ? 0 : '1.2em'}>
-                                    {line}
-                                  </tspan>
-                                ))}
-                              </text>
-                            </g>
-                          );
-                        })}
-                      </>
-                    )}
+                    <TraversalOverlay traversalState={traversalState} isMobile={isMobile} />
                   </g>
 
                 </svg>
@@ -2557,6 +2531,15 @@ const WikiNavTree = () => {
         onClose={() => setShowNetworkView(false)}
         pages={pages}
         activePage={activePage}
+        isMobile={isMobile}
+        onNodeSelect={(pageInfo) => {
+          const existing = pages.find(p => p.title === pageInfo.title);
+          if (existing) {
+            handleNodeClick(existing);
+          } else {
+            loadNewPage({ title: pageInfo.title, url: pageInfo.url || `https://en.wikipedia.org/wiki/${pageInfo.title.replace(/\s+/g, '_')}` });
+          }
+        }}
       />
 
       {/* Rabbit Hole Analysis Panel */}
@@ -2566,6 +2549,7 @@ const WikiNavTree = () => {
         currentPage={activePage}
         onLoadPage={loadNewPage}
         loadPageData={loadPageData}
+        isMobile={isMobile}
       />
 
       {isLoadingShared && <LoadingBunny />}
