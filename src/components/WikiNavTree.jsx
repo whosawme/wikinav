@@ -795,6 +795,34 @@ const EdgeComponent = ({ startX, startY, endX, endY, suggested, isSpine, isMobil
   />
 );
 
+// A revisit is navigation history, not a new parent/child relationship. Draw
+// it separately so it cannot change the stable tree order or node positions.
+const TraversalEdgeComponent = ({ startX, startY, endX, endY, isMobile = false }) => {
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const distance = Math.hypot(dx, dy) || 1;
+  const bend = Math.min(90, Math.max(32, distance * 0.18));
+  const perpendicularX = (-dy / distance) * bend;
+  const perpendicularY = (dx / distance) * bend;
+  const control1X = startX + dx * 0.32 + perpendicularX;
+  const control1Y = startY + dy * 0.32 + perpendicularY;
+  const control2X = startX + dx * 0.68 + perpendicularX;
+  const control2Y = startY + dy * 0.68 + perpendicularY;
+
+  return (
+    <path
+      d={`M ${startX} ${startY} C ${control1X} ${control1Y}, ${control2X} ${control2Y}, ${endX} ${endY}`}
+      fill="none"
+      stroke="#60a5fa"
+      strokeWidth={isMobile ? "1.5" : "2.5"}
+      strokeOpacity="0.58"
+      strokeDasharray="7 6"
+      strokeLinecap="round"
+      className="pointer-events-none"
+    />
+  );
+};
+
 // Resizer component
 const Resizer = ({ onMouseDown }) => (
   <div 
@@ -1903,21 +1931,9 @@ const WikiNavTree = () => {
       );
 
       if (existingPage) {
-        if (
-          activePage &&
-          activePage.id !== existingPage.id &&
-          !activePage.children.includes(existingPage.id) &&
-          shouldAddToTree
-        ) {
-          setPages(prevPages => {
-            const updatedPages = [...prevPages];
-            const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
-            if (activePageIndex !== -1) {
-              updatedPages[activePageIndex].children.push(existingPage.id);
-            }
-            return updatedPages;
-          });
-        }
+        // Do not turn a revisit into a second parent/child edge: that would
+        // re-layout the existing node. navigationHistory records the visit and
+        // renderTraversalEdges visualizes the return path separately.
         setActivePage(existingPage);
         setWikiContent(existingPage.content);
       } else {
@@ -2051,6 +2067,32 @@ const WikiNavTree = () => {
         );
       }).filter(Boolean)
     );
+  };
+
+  const renderTraversalEdges = () => {
+    const edges = [];
+    const pageById = new Map(pages.map(page => [page.id, page]));
+    const upto = Math.min(historyIndex, navigationHistory.length - 1);
+
+    for (let i = 1; i <= upto; i++) {
+      const from = pageById.get(navigationHistory[i - 1]?.id);
+      const to = pageById.get(navigationHistory[i]?.id);
+      if (!from || !to || from.id === to.id) continue;
+      // A tree edge already conveys a first-time descent. Only add the curved
+      // history edge for revisits and cross-branch jumps.
+      if ((from.children || []).includes(to.id)) continue;
+      edges.push(
+        <TraversalEdgeComponent
+          key={`traversal-edge-${i}-${from.id}-${to.id}`}
+          startX={from.x}
+          startY={from.y}
+          endX={to.x}
+          endY={to.y}
+          isMobile={isMobile}
+        />
+      );
+    }
+    return edges;
   };
 
   const renderGridDepthLabels = () => {
@@ -2367,6 +2409,7 @@ const WikiNavTree = () => {
                 >
                   <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
                     {renderEdges()}
+                    {renderTraversalEdges()}
                     {renderGridDepthLabels()}
                     {renderSeeAlsoEdges()}
                     {pages.map(page => (
