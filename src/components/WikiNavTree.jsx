@@ -625,10 +625,13 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, i
     r={outerRadius}  
     fill={`url(#${gradientId})`}
     stroke={suggested ? '#94a3b8' : (isActive ? '#1d4ed8' : '#64748b')}
-    strokeWidth={scale}
+    strokeWidth={isActive ? 4 * scale : scale}
     style={suggested ? { opacity: 0.7 } : {}}
     className="transition-all duration-200 ease-in-out"
   />
+  {isActive && (
+    <circle r={outerRadius + 6 * scale} fill="none" stroke="#60a5fa" strokeWidth={2 * scale} strokeDasharray={`${4 * scale} ${3 * scale}`} />
+  )}
   {thumbnail && (
     <image
       x={imageOffset}   
@@ -702,6 +705,11 @@ const NodeComponent = ({ x, y, title, thumbnail, isActive, suggested, onClick, i
             </tspan>
           ))}
         </text>
+        {isActive && (
+          <text textAnchor="middle" y={-outerRadius - 12 * scale} fill="#1d4ed8" fontSize={11 * scale} fontWeight="700">
+            Current
+          </text>
+        )}
       </>
     );
   })()}
@@ -739,9 +747,14 @@ const RedirectNodeComponent = ({ x, y, title, redirectTarget, isActive, onClick,
         rx="4"
         fill={isActive ? '#f0f9ff' : '#f8fafc'}
         stroke={isActive ? '#3b82f6' : '#94a3b8'}
-        strokeWidth="1"
+        strokeWidth={isActive ? "3" : "1"}
         strokeDasharray="4 2"
       />
+      {isActive && (
+        <text textAnchor="middle" y={-boxHeight / 2 - 8 * scale} fill="#1d4ed8" fontSize={10 * scale} fontWeight="700">
+          Current
+        </text>
+      )}
       {/* "Redirect to:" label */}
       <text
         textAnchor="middle"
@@ -769,14 +782,14 @@ const RedirectNodeComponent = ({ x, y, title, redirectTarget, isActive, onClick,
 };
 
 // Edge component with arrows removed
-const EdgeComponent = ({ startX, startY, endX, endY, suggested, isMobile = false }) => (
+const EdgeComponent = ({ startX, startY, endX, endY, suggested, isSpine, isMobile = false }) => (
   <line 
     x1={startX} 
     y1={startY} 
     x2={endX} 
     y2={endY} 
-    stroke={suggested ? '#94a3b8' : '#64748b'} 
-    strokeWidth={isMobile ? "1" : "2"}
+    stroke={suggested ? '#94a3b8' : isSpine ? '#2563eb' : '#64748b'}
+    strokeWidth={isSpine ? (isMobile ? "2" : "4") : (isMobile ? "1" : "2")}
     style={suggested ? { strokeOpacity: 0.5, strokeDasharray: '4 4' } : {}}
     className="transition-all duration-200"
   />
@@ -835,6 +848,7 @@ const WikiNavTree = () => {
   const [navigationHistory, setNavigationHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isSplayed, setIsSplayed] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('tidy'); // 'tidy' | 'spine' | 'grid'
   const [showSeeAlso, setShowSeeAlso] = useState(false);
   const [seeAlsoNodes, setSeeAlsoNodes] = useState([]);
   const [showNetworkView, setShowNetworkView] = useState(false);
@@ -848,6 +862,7 @@ const WikiNavTree = () => {
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
+  const fitAfterLayoutRef = useRef(false);
 
   // Clean up D3 simulation on unmount to prevent memory leaks
   useEffect(() => {
@@ -1286,409 +1301,318 @@ const WikiNavTree = () => {
     }
   };
 
-  // Apply a compact (static) layout by recalculating positions recursively.
-  // actually lets not do recursive stuff for now, to avoid infinite loops without proper termination conditions
-  const applyCompactLayout = () => {
-    if (pages.length === 0) return;
-    
-    // First, create a mapping of nodes and their levels
-    const levels = new Map();
-    const processed = new Set();
-    
-    // Mobile vs Desktop spacing - increased for better readability
-    const isMobile = viewport.width < 768;
-    const NODE_SIZE = isMobile ? 140 : 100; // Increased from 80/60 to prevent overlap
-    const LEVEL_SPACING = isMobile ? 100 : 120; // Increased for better separation
-    
-    // Step 1: Assign levels to all nodes (like git branch depth)
-    const assignLevels = (nodeId, level = 0) => {
-      if (!levels.has(level)) {
-        levels.set(level, []);
-      }
-      levels.get(level).push(nodeId);
-      processed.add(nodeId);
-      
-      const node = pages.find(p => p.id === nodeId);
-      if (node && node.children) {
-        node.children.forEach(childId => {
-          if (!processed.has(childId)) {
-            assignLevels(childId, level + 1);
-          }
-        });
-      }
+  // ---------- Tree layout: three pure compute functions + dispatcher ----------
+  // Each returns Map<pageId, {x, y}> and never mutates inputs.
+  // All overlap avoidance is done by the geometry of the algorithm itself,
+  // so no cascade-push or post-hoc collision pass is needed.
+
+  const buildParentMap = (pagesArg) => {
+    const parentOf = new Map();
+    pagesArg.forEach(p => (p.children || []).forEach(c => parentOf.set(c, p.id)));
+    return parentOf;
+  };
+
+  const shiftToPadding = (positions, padding = 60) => {
+    let minX = Infinity, minY = Infinity;
+    positions.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); });
+    if (!isFinite(minX) || !isFinite(minY)) return positions;
+    const dx = padding - minX;
+    const dy = padding - minY;
+    if (dx === 0 && dy === 0) return positions;
+    positions.forEach((p, id) => positions.set(id, { x: p.x + dx, y: p.y + dy }));
+    return positions;
+  };
+
+  // 1) Tidy tree (Reingold-Tilford) via d3.hierarchy + d3.tree.
+  //    Non-overlapping by construction. Transposes for mobile.
+  const computeTidyLayout = (pagesArg, isMobileArg) => {
+    const positions = new Map();
+    if (pagesArg.length === 0) return positions;
+
+    const map = new Map(pagesArg.map(p => [p.id, p]));
+    const parentOf = buildParentMap(pagesArg);
+    const roots = pagesArg.filter(p => !parentOf.has(p.id));
+
+    const buildNode = (page, seen) => {
+      if (seen.has(page.id)) return { id: page.id, children: [] };
+      seen.add(page.id);
+      const kids = (page.children || [])
+        .map(cid => map.get(cid))
+        .filter(Boolean)
+        .map(child => buildNode(child, seen));
+      return { id: page.id, children: kids };
     };
-  
-    // Start with root node
-    if (pages.length > 0) {
-      assignLevels(pages[0].id);
-    }
-    
-    // Handle any orphaned nodes that weren't reached from root
-    pages.forEach(page => {
-      if (!processed.has(page.id)) {
-        // Try to find its proper level based on parent
-        const parentId = findParentId(page.id);
-        if (parentId && processed.has(parentId)) {
-          // Find parent's level
-          let parentLevel = 0;
-          for (const [level, nodes] of levels.entries()) {
-            if (nodes.includes(parentId)) {
-              parentLevel = level;
-              break;
-            }
-          }
-          assignLevels(page.id, parentLevel + 1);
+
+    const seen = new Set();
+    const rootData = roots.length === 1
+      ? buildNode(roots[0], seen)
+      : { id: '__synth__', children: roots.map(r => buildNode(r, seen)) };
+    // Any pages missed (disconnected) attach under synthetic root
+    pagesArg.forEach(p => {
+      if (!seen.has(p.id)) {
+        if (rootData.id !== '__synth__') {
+          // Promote to synthetic root
+          const prev = rootData;
+          rootData.children = undefined;
+          rootData.id = '__synth__';
+          rootData.children = [prev, buildNode(p, seen)];
         } else {
-          // Orphaned node - put at level 0
-          assignLevels(page.id, 0);
+          rootData.children.push(buildNode(p, seen));
         }
       }
     });
-  
-    // Step 2: Position nodes by level, adjusting for overlaps
-    const newPositions = new Map();
-    
-    // Process each level
-    Array.from(levels.keys()).sort((a, b) => a - b).forEach(level => {
-      const nodesInLevel = levels.get(level);
-      
-      // First pass: position nodes based on parent or evenly
-      nodesInLevel.forEach((nodeId, index) => {
-        const node = pages.find(p => p.id === nodeId);
-        let x, y;
-        
-        if (isMobile) {
-          // Mobile: horizontal flow (x increases with level, y varies for siblings)
-          x = level * LEVEL_SPACING + 50;
-          
-          if (level > 0) {
-            const parentId = findParentId(nodeId);
-            if (parentId && newPositions.has(parentId)) {
-              const parentY = newPositions.get(parentId).y;
-              const parent = pages.find(p => p.id === parentId);
-              const siblingCount = parent ? parent.children.length : 1;
-              const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
-              y = parentY + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE;
-            } else {
-              y = (index + 0.5) * NODE_SIZE;
-            }
-          } else {
-            y = (index + 0.5) * NODE_SIZE;
-          }
-        } else {
-          // Desktop: vertical flow (y increases with level, x varies for siblings)
-          y = level * LEVEL_SPACING + 50;
 
-          if (level > 0) {
-            const parentId = findParentId(nodeId);
-            if (parentId && newPositions.has(parentId)) {
-              const parentX = newPositions.get(parentId).x;
-              const parent = pages.find(p => p.id === parentId);
-              const siblingCount = parent ? parent.children.length : 1;
-              const siblingIndex = parent ? parent.children.indexOf(nodeId) : 0;
-              // Center siblings around parent's X position
-              x = parentX + (siblingIndex - (siblingCount - 1) / 2) * NODE_SIZE;
-            } else {
-              x = (index + 0.5) * NODE_SIZE;
-            }
-          } else {
-            x = (index + 0.5) * NODE_SIZE;
-          }
-        }
-        
-        newPositions.set(nodeId, { x, y });
-      });
-      
-      // Second pass: resolve overlaps using FR-inspired repulsion
-      let hasOverlap;
-      do {
-        hasOverlap = false;
-        nodesInLevel.forEach((nodeId, i) => {
-          const pos1 = newPositions.get(nodeId);
-          if (!pos1) return;
-          
-          nodesInLevel.forEach((otherId, j) => {
-            if (i >= j) return;
-            
-            const pos2 = newPositions.get(otherId);
-            if (!pos2) return;
-            
-            let distance, moveDirection;
-            
-            if (isMobile) {
-              // Mobile: check Y distance (nodes are spread vertically)
-              const dy = pos2.y - pos1.y;
-              distance = Math.abs(dy);
-              moveDirection = 'y';
-            } else {
-              // Desktop: check X distance (nodes are spread horizontally)
-              const dx = pos2.x - pos1.x;
-              distance = Math.abs(dx);
-              moveDirection = 'x';
-            }
-            
-            if (distance < NODE_SIZE) {
-              hasOverlap = true;
-              const repulsion = (NODE_SIZE - distance) / 2;
-              
-              if (moveDirection === 'y') {
-                const moveY = repulsion * Math.sign(pos2.y - pos1.y);
-                newPositions.set(nodeId, {
-                  ...pos1,
-                  y: pos1.y - moveY
-                });
-                newPositions.set(otherId, {
-                  ...pos2,
-                  y: pos2.y + moveY
-                });
-              } else {
-                const moveX = repulsion * Math.sign(pos2.x - pos1.x);
-                newPositions.set(nodeId, {
-                  ...pos1,
-                  x: pos1.x - moveX
-                });
-                newPositions.set(otherId, {
-                  ...pos2,
-                  x: pos2.x + moveX
-                });
-              }
-            }
+    const nodeStep = isMobileArg ? 160 : 120;
+    const levelStep = isMobileArg ? 140 : 150;
+
+    const hRoot = d3.hierarchy(rootData);
+    d3.tree().nodeSize([nodeStep, levelStep])(hRoot);
+
+    hRoot.each(node => {
+      if (node.data.id === '__synth__') return;
+      // d3.tree: node.x = sibling axis, node.y = depth axis.
+      // Desktop (vertical tree): x -> screenX, y -> screenY.
+      // Mobile (horizontal tree): rotate 90° -> screenX=y, screenY=x.
+      if (isMobileArg) {
+        positions.set(node.data.id, { x: node.y, y: node.x });
+      } else {
+        positions.set(node.data.id, { x: node.x, y: node.y });
+      }
+    });
+
+    return shiftToPadding(positions);
+  };
+
+  // 2) History-spine layout: current navigation path as a straight spine,
+  //    non-spine descendants fan out perpendicular via per-spine-node subtrees.
+  const computeSpineLayout = (pagesArg, history, histIdx, isMobileArg) => {
+    const positions = new Map();
+    if (pagesArg.length === 0) return positions;
+
+    const map = new Map(pagesArg.map(p => [p.id, p]));
+    const parentOf = buildParentMap(pagesArg);
+
+    const spineIds = [];
+    const spineSet = new Set();
+    const upto = histIdx >= 0 ? histIdx : history.length - 1;
+    for (let i = 0; i <= upto && i < history.length; i++) {
+      const id = history[i]?.id;
+      if (id && map.has(id) && !spineSet.has(id)) {
+        spineIds.push(id);
+        spineSet.add(id);
+      }
+    }
+    if (spineIds.length === 0) {
+      const root = pagesArg.find(p => !parentOf.has(p.id)) || pagesArg[0];
+      spineIds.push(root.id);
+      spineSet.add(root.id);
+    }
+
+    const levelStep = isMobileArg ? 150 : 150;
+    const nodeStep = isMobileArg ? 150 : 110;
+    const branchOffset = isMobileArg ? 160 : 160;
+    const PAD = 60;
+
+    // Place spine
+    spineIds.forEach((id, i) => {
+      if (isMobileArg) {
+        positions.set(id, { x: PAD + i * levelStep, y: PAD });
+      } else {
+        positions.set(id, { x: PAD + 280, y: PAD + i * levelStep });
+      }
+    });
+
+    // Build subtree for each spine node's non-spine children
+    const buildSubtree = (id, seen) => {
+      if (seen.has(id)) return null;
+      seen.add(id);
+      const page = map.get(id);
+      if (!page) return null;
+      const kids = (page.children || [])
+        .filter(cid => !spineSet.has(cid))
+        .map(cid => buildSubtree(cid, seen))
+        .filter(Boolean);
+      return { id, children: kids };
+    };
+
+    const seen = new Set();
+    spineIds.forEach((spineId, spineIdx) => {
+      const page = map.get(spineId);
+      if (!page) return;
+      const branchChildren = (page.children || []).filter(cid => !spineSet.has(cid));
+      if (branchChildren.length === 0) return;
+
+      const subtreeRoots = branchChildren
+        .map(cid => buildSubtree(cid, seen))
+        .filter(Boolean);
+      if (subtreeRoots.length === 0) return;
+
+      const virtualRoot = { id: '__branch__', children: subtreeRoots };
+      const h = d3.hierarchy(virtualRoot);
+      d3.tree().nodeSize([nodeStep * 0.9, branchOffset * 0.75])(h);
+
+      const spinePos = positions.get(spineId);
+      const originX = h.x;
+      const originY = h.y;
+      // Alternate sides so branches don't stack up on one axis
+      const side = spineIdx % 2 === 0 ? 1 : -1;
+
+      h.each(node => {
+        if (node.data.id === '__branch__') return;
+        if (!map.has(node.data.id)) return;
+        if (isMobileArg) {
+          // Spine horizontal, branches go down (virtualRoot at y=0 → offset below spine)
+          positions.set(node.data.id, {
+            x: spinePos.x + (node.x - originX),
+            y: spinePos.y + branchOffset + (node.y - originY),
           });
-        });
-      } while (hasOverlap);
-    });
-
-    // Final pass: ensure all nodes stay within left boundary (shift tree right if needed)
-    let minX = Infinity;
-    let minY = Infinity;
-    newPositions.forEach(pos => {
-      if (pos.x < minX) minX = pos.x;
-      if (pos.y < minY) minY = pos.y;
-    });
-
-    // Shift all positions if any node is too far left/top
-    const MIN_PADDING = 50;
-    const shiftX = minX < MIN_PADDING ? MIN_PADDING - minX : 0;
-    const shiftY = minY < MIN_PADDING ? MIN_PADDING - minY : 0;
-
-    if (shiftX > 0 || shiftY > 0) {
-      newPositions.forEach((pos, nodeId) => {
-        newPositions.set(nodeId, {
-          x: pos.x + shiftX,
-          y: pos.y + shiftY
-        });
-      });
-    }
-
-    // Apply new positions to pages - ensure ALL pages get updated
-    setPages(prevPages => 
-      prevPages.map(page => {
-        const newPos = newPositions.get(page.id);
-        if (newPos) {
-          return {
-            ...page,
-            x: newPos.x,
-            y: newPos.y
-          };
         } else {
-          // Fallback for any nodes that somehow weren't positioned
-          console.warn(`Node ${page.id} (${page.title}) was not positioned in compact layout`);
-          return {
-            ...page,
-            x: 50,
-            y: 50
-          };
+          // Spine vertical, branches fan out to side
+          positions.set(node.data.id, {
+            x: spinePos.x + side * (branchOffset + (node.y - originY)),
+            y: spinePos.y + (node.x - originX),
+          });
         }
-      })
-    );
-  };
-  
-  // Helper function to find parent ID of a node
-  const findParentId = (nodeId) => {
-    const parent = pages.find(p => p.children && p.children.includes(nodeId));
-    return parent ? parent.id : null;
-  };
-
-  // Mobile-specific collision resolution - improved version
-  const resolveMobileCollisions = (pages) => {
-    // Increased spacing to prevent node/label overlap
-    const MIN_NODE_DISTANCE = 140; // Increased from 120 - accounts for node + label height
-    const MIN_CROSS_LEVEL_DISTANCE = 140; // Minimum distance between nodes in different columns (increased from 100)
-    const updatedPages = [...pages];
-
-    // Group nodes by x-levels (since mobile flows horizontally)
-    const xLevels = {};
-    updatedPages.forEach(page => {
-      const xLevel = Math.round(page.x / 60) * 60; // Round to nearest 60px (was 50)
-      if (!xLevels[xLevel]) {
-        xLevels[xLevel] = [];
-      }
-      xLevels[xLevel].push(page);
-    });
-
-    // Sort x-levels by position
-    const sortedXLevels = Object.keys(xLevels).map(Number).sort((a, b) => a - b);
-
-    // Resolve collisions within each x-level
-    sortedXLevels.forEach(xLevel => {
-      const levelNodes = xLevels[xLevel];
-      if (levelNodes.length <= 1) return;
-
-      // Sort by y position
-      levelNodes.sort((a, b) => a.y - b.y);
-
-      // Check for overlaps and fix them
-      for (let i = 1; i < levelNodes.length; i++) {
-        const prevNode = levelNodes[i - 1];
-        const currNode = levelNodes[i];
-
-        const distance = currNode.y - prevNode.y;
-        if (distance < MIN_NODE_DISTANCE) {
-          // Move current node down to avoid overlap
-          const adjustment = MIN_NODE_DISTANCE - distance;
-          currNode.y += adjustment;
-
-          // Cascade adjustment to subsequent nodes
-          for (let j = i + 1; j < levelNodes.length; j++) {
-            if (levelNodes[j].y - levelNodes[j - 1].y < MIN_NODE_DISTANCE) {
-              levelNodes[j].y = levelNodes[j - 1].y + MIN_NODE_DISTANCE;
-            }
-          }
-        }
-      }
-    });
-
-    // Cross-level collision detection (check adjacent columns)
-    for (let i = 0; i < sortedXLevels.length - 1; i++) {
-      const currentLevelNodes = xLevels[sortedXLevels[i]];
-      const nextLevelNodes = xLevels[sortedXLevels[i + 1]];
-
-      if (!nextLevelNodes) continue;
-
-      // Check for diagonal overlaps between adjacent levels
-      currentLevelNodes.forEach(currentNode => {
-        nextLevelNodes.forEach(nextNode => {
-          const dx = Math.abs(nextNode.x - currentNode.x);
-          const dy = Math.abs(nextNode.y - currentNode.y);
-
-          // If nodes are too close diagonally, push the next node down
-          if (dx < 100 && dy < MIN_CROSS_LEVEL_DISTANCE) {
-            const adjustment = MIN_CROSS_LEVEL_DISTANCE - dy;
-            if (nextNode.y >= currentNode.y) {
-              nextNode.y += adjustment;
-            } else {
-              nextNode.y -= adjustment;
-            }
-          }
-        });
       });
-    }
+    });
 
-    return updatedPages;
-  };
-
-  const calculateNodePosition = (parentX, parentY, index, siblingCount, viewportWidth) => {
-    // Make spacing responsive to viewport width
-    const isMobile = viewportWidth < 768; // Mobile breakpoint
-
-    // Node sizing and spacing
-    const nodeHeight = isMobile ? 150 : 100; // Accounts for node + label
-    const nodeWidth = isMobile ? 100 : 120;
-    const levelSpacing = isMobile ? 100 : 140; // Distance between levels
-
-    let baseX, baseY;
-
-    if (isMobile) {
-      // Mobile layout: horizontal flow (left to right)
-      // For mobile, move right for each level, spread vertically for siblings
-      const startY = parentY - ((siblingCount - 1) * nodeHeight) / 2;
-      baseX = parentX + levelSpacing;
-      baseY = startY + (index * nodeHeight);
-    } else {
-      // Desktop layout: vertical flow (top to bottom)
-      const startX = parentX - ((siblingCount - 1) * nodeWidth) / 2;
-      baseX = startX + (index * nodeWidth);
-      baseY = parentY + levelSpacing;
-    }
-
-    // New node claims its natural position
-    // Any colliding nodes will be pushed in setPages via cascadePushNodes
-    return { x: baseX, y: baseY };
-  };
-
-  // Push nodes that collide with a new position, cascading the push through the tree
-  const cascadePushNodes = (pages, newNodeX, newNodeY, newNodeId, viewportWidth) => {
-    const isMobile = viewportWidth < 768;
-    const nodeHeight = isMobile ? 150 : 100;
-    const nodeWidth = isMobile ? 100 : 120;
-    const COLLISION_THRESHOLD = isMobile ? 100 : 80; // How close nodes can be before collision
-
-    // Find nodes that collide with the given position
-    const findCollidingNode = (x, y, excludeIds = []) => {
-      for (const page of pages) {
-        if (excludeIds.includes(page.id)) continue;
-        const dx = Math.abs(page.x - x);
-        const dy = Math.abs(page.y - y);
-        // Check if nodes overlap (considering their visual size)
-        if (dx < COLLISION_THRESHOLD && dy < COLLISION_THRESHOLD) {
-          return page;
+    // Any orphans not placed → simple fallback column
+    let fallbackIdx = 0;
+    pagesArg.forEach(p => {
+      if (!positions.has(p.id)) {
+        if (isMobileArg) {
+          positions.set(p.id, { x: PAD + fallbackIdx * nodeStep, y: PAD + branchOffset * 2 });
+        } else {
+          positions.set(p.id, { x: PAD, y: PAD + fallbackIdx * nodeStep });
         }
+        fallbackIdx++;
       }
-      return null;
-    };
+    });
 
-    // Track which nodes need to be pushed and by how much
-    const pushes = new Map(); // nodeId -> { dx, dy }
-    const processed = new Set([newNodeId]);
+    return shiftToPadding(positions);
+  };
 
-    // Start by checking collision at the new node's position
-    let collidingNode = findCollidingNode(newNodeX, newNodeY, [newNodeId]);
+  // 3) Grid layout (git-log style): depth = one axis, insertion order = other axis.
+  //    Every node gets its own row → zero overlap possible.
+  const computeGridLayout = (pagesArg, history, isMobileArg) => {
+    const positions = new Map();
+    if (pagesArg.length === 0) return positions;
 
-    if (!collidingNode) {
-      return pages; // No collision, return unchanged
-    }
+    const map = new Map(pagesArg.map(p => [p.id, p]));
+    const parentOf = buildParentMap(pagesArg);
 
-    // Queue of positions to check for cascade
-    const queue = [{ x: newNodeX, y: newNodeY, excludeIds: [newNodeId] }];
-
+    // BFS depth from each root
+    const depth = new Map();
+    const roots = pagesArg.filter(p => !parentOf.has(p.id));
+    const queue = roots.map(r => ({ id: r.id, d: 0 }));
     while (queue.length > 0) {
-      const { x, y, excludeIds } = queue.shift();
-      const collider = findCollidingNode(x, y, excludeIds);
-
-      if (!collider || processed.has(collider.id)) continue;
-
-      processed.add(collider.id);
-
-      // Calculate push amount
-      const pushAmount = isMobile ? nodeHeight : nodeWidth;
-      const newX = isMobile ? collider.x : collider.x + pushAmount;
-      const newY = isMobile ? collider.y + pushAmount : collider.y;
-
-      pushes.set(collider.id, {
-        dx: newX - collider.x,
-        dy: newY - collider.y
-      });
-
-      // Check if pushing this node causes another collision
-      queue.push({ x: newX, y: newY, excludeIds: [...excludeIds, collider.id] });
-    }
-
-    // Apply all pushes
-    if (pushes.size === 0) {
-      return pages;
-    }
-
-    return pages.map(page => {
-      const push = pushes.get(page.id);
-      if (push) {
-        return {
-          ...page,
-          x: page.x + push.dx,
-          y: page.y + push.dy
-        };
+      const { id, d } = queue.shift();
+      if (depth.has(id)) continue;
+      depth.set(id, d);
+      const page = map.get(id);
+      if (page?.children) {
+        page.children.forEach(cid => { if (!depth.has(cid)) queue.push({ id: cid, d: d + 1 }); });
       }
-      return page;
+    }
+    pagesArg.forEach(p => { if (!depth.has(p.id)) depth.set(p.id, 0); });
+
+    // Global insertion order: navigationHistory first (unique), then remaining pages
+    const order = new Map();
+    let idx = 0;
+    const placed = new Set();
+    history.forEach(hp => {
+      if (map.has(hp.id) && !placed.has(hp.id)) {
+        order.set(hp.id, idx++);
+        placed.add(hp.id);
+      }
     });
+    pagesArg.forEach(p => {
+      if (!placed.has(p.id)) {
+        order.set(p.id, idx++);
+        placed.add(p.id);
+      }
+    });
+
+    const colStep = isMobileArg ? 130 : 140;
+    const rowStep = isMobileArg ? 150 : 120;
+    const PAD = 60;
+
+    pagesArg.forEach(p => {
+      const col = depth.get(p.id) || 0;
+      const row = order.get(p.id) || 0;
+      if (isMobileArg) {
+        // Transpose: order → x, depth → y
+        positions.set(p.id, { x: PAD + row * rowStep, y: PAD + col * colStep });
+      } else {
+        positions.set(p.id, { x: PAD + col * colStep, y: PAD + row * rowStep });
+      }
+    });
+
+    return positions;
+  };
+
+  // Auto-fit: if tree fits well within the SVG pane, scale + center it;
+  // otherwise leave current zoom/pan so user can pan/scroll.
+  const autoFitLayout = (positions, forceFit = false) => {
+    if (!svgRef.current || positions.size === 0) return;
+    const svgW = svgRef.current.clientWidth;
+    const svgH = svgRef.current.clientHeight;
+    if (svgW <= 0 || svgH <= 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    positions.forEach(p => {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    });
+    const nodePad = 80; // visual half-size of a node + label
+    const treeW = (maxX - minX) + nodePad * 2;
+    const treeH = (maxY - minY) + nodePad * 2;
+
+    const scale = Math.min(svgW / treeW, svgH / treeH, 1);
+    const fits = treeW <= svgW * 1.02 && treeH <= svgH * 1.02;
+
+    if (forceFit || fits) {
+      setZoom(scale);
+      setPan({
+        x: (svgW - treeW * scale) / 2 - (minX - nodePad) * scale,
+        y: (svgH - treeH * scale) / 2 - (minY - nodePad) * scale,
+      });
+    }
+    // If tree overflows, leave zoom/pan alone — user can pan/pinch.
+  };
+
+  // Dispatcher: picks the right compute fn, applies positions, auto-fits.
+  const applyLayout = () => {
+    if (pages.length === 0) return;
+    // Stop any running force simulation so static layout sticks
+    if (simulationRef.current) {
+      simulationRef.current.stop();
+      simulationRef.current = null;
+    }
+
+    let positions;
+    if (layoutMode === 'spine') {
+      positions = computeSpineLayout(pages, navigationHistory, historyIndex, isMobile);
+    } else if (layoutMode === 'grid') {
+      positions = computeGridLayout(pages, navigationHistory, isMobile);
+    } else {
+      positions = computeTidyLayout(pages, isMobile);
+    }
+
+    setPages(prev => prev.map(p => {
+      const pos = positions.get(p.id);
+      return pos ? { ...p, x: pos.x, y: pos.y } : p;
+    }));
+
+    autoFitLayout(positions, fitAfterLayoutRef.current);
+    fitAfterLayoutRef.current = false;
+  };
+
+  const handleLayoutModeChange = (mode) => {
+    if (mode === layoutMode) return;
+    // Layout changes should always put the complete result in view.
+    fitAfterLayoutRef.current = true;
+    setLayoutMode(mode);
   };
 
   // Navigate to a wiki link by href
@@ -1898,6 +1822,25 @@ const WikiNavTree = () => {
     setShowNetworkView(!showNetworkView);
   };
 
+  // Re-run the static layout whenever the tree's shape, selected layout,
+  // or viewport changes. Skip when the force simulation is active (isSplayed)
+  // or when showing the network view — those own the positions.
+  const lastLayoutSig = useRef('');
+  useEffect(() => {
+    if (pages.length === 0) return;
+    if (isSplayed || showNetworkView) return;
+    // Signature encodes everything that should cause a re-layout. Position
+    // (x/y) is deliberately excluded — that's what we're setting.
+    const shapeSig = pages
+      .map(p => `${p.id}>${(p.children || []).join(',')}`)
+      .join('|');
+    const sig = `${layoutMode}|${isMobile}|${viewport.width}|${viewport.height}|${historyIndex}|${shapeSig}`;
+    if (sig === lastLayoutSig.current) return;
+    lastLayoutSig.current = sig;
+    applyLayout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages, layoutMode, isMobile, viewport.width, viewport.height, historyIndex, isSplayed, showNetworkView]);
+
   // const handleTreePaneToggle = () => {
   //   setIsTreePaneCollapsed(prev => !prev);
   // };
@@ -1962,15 +1905,11 @@ const WikiNavTree = () => {
         setWikiContent(existingPage.content);
       } else {
         if (pageInfo.isInitialLoad || shouldAddToTree) {
-          const position = pages.length === 0
-            ? { x: 50, y: 50 }
-            : calculateNodePosition(
-                activePage.x,
-                activePage.y,
-                activePage.children.length,
-                activePage.children.length + 1,
-                viewport.width
-              );
+          // Seed the new node near its parent; the layout useEffect
+          // will snap it to the correct position for the active layoutMode.
+          const seedPos = pages.length === 0
+            ? { x: 80, y: 80 }
+            : { x: (activePage?.x ?? 80) + 40, y: (activePage?.y ?? 80) + 40 };
           const newPageId = generateUniqueId();
           const newPage = {
             parent_id: pages.length === 0 ? "0" : activePage.id,
@@ -1979,19 +1918,16 @@ const WikiNavTree = () => {
             url: pageInfo.url,
             content,
             thumbnail,
-            seeAlso: seeAlsoLinks, // Real "See also" links parsed from Wikipedia content
+            seeAlso: seeAlsoLinks,
             isRedirect,
             redirectTarget: redirectInfo?.targetTitle || null,
-            x: position.x,
-            y: position.y,
+            x: seedPos.x,
+            y: seedPos.y,
             children: []
           };
 
           setPages(prevPages => {
-            // First add the new page
-            let updatedPages = [...prevPages, newPage];
-
-            // Add parent-child relationship
+            const updatedPages = [...prevPages, newPage];
             if (activePage) {
               const activePageIndex = updatedPages.findIndex(p => p.id === activePage.id);
               if (activePageIndex !== -1) {
@@ -2001,10 +1937,6 @@ const WikiNavTree = () => {
                 updatedPages[activePageIndex].children.push(newPage.id);
               }
             }
-
-            // Push any colliding nodes (cascade through tree)
-            updatedPages = cascadePushNodes(updatedPages, position.x, position.y, newPageId, viewport.width);
-
             return updatedPages;
           });
           setActivePage(newPage);
@@ -2072,6 +2004,13 @@ const WikiNavTree = () => {
   // Rendering functions
   const renderEdges = () => {
     const renderedKeys = new Set();
+    const spineEdges = new Set();
+    if (layoutMode === 'spine') {
+      const upto = historyIndex >= 0 ? historyIndex : navigationHistory.length - 1;
+      for (let i = 1; i <= upto; i++) {
+        spineEdges.add(`${navigationHistory[i - 1]?.id}-${navigationHistory[i]?.id}`);
+      }
+    }
     
     return pages.flatMap(page =>
       page.children.map(childId => {
@@ -2089,11 +2028,46 @@ const WikiNavTree = () => {
             startY={page.y} 
             endX={child.x} 
             endY={child.y}
+            isSpine={spineEdges.has(`${page.id}-${childId}`)}
             isMobile={isMobile} 
           />
         );
       }).filter(Boolean)
     );
+  };
+
+  const renderGridDepthLabels = () => {
+    if (layoutMode !== 'grid' || pages.length < 2) return null;
+
+    const pageById = new Map(pages.map(page => [page.id, page]));
+    const childIds = new Set(pages.flatMap(page => page.children || []));
+    const depthById = new Map();
+    const queue = pages
+      .filter(page => !childIds.has(page.id))
+      .map(page => ({ id: page.id, depth: 0 }));
+
+    while (queue.length) {
+      const { id, depth } = queue.shift();
+      if (depthById.has(id)) continue;
+      depthById.set(id, depth);
+      (pageById.get(id)?.children || []).forEach(childId => queue.push({ id: childId, depth: depth + 1 }));
+    }
+    pages.forEach(page => { if (!depthById.has(page.id)) depthById.set(page.id, 0); });
+
+    const depths = [...new Set(depthById.values())].sort((a, b) => a - b);
+    return depths.map(depth => {
+      const node = pages.find(page => depthById.get(page.id) === depth);
+      if (!node) return null;
+      return isMobile ? (
+        <text key={`grid-depth-${depth}`} x={12} y={node.y - 18} fill="#475569" fontSize="11" fontWeight="700">
+          Level {depth}
+        </text>
+      ) : (
+        <text key={`grid-depth-${depth}`} x={node.x} y={24} textAnchor="middle" fill="#475569" fontSize="11" fontWeight="700">
+          Level {depth}
+        </text>
+      );
+    });
   };
 
   const renderSeeAlsoEdges = () => {
@@ -2260,6 +2234,18 @@ const WikiNavTree = () => {
                   <circle cx="12" cy="12" r="1" fill="currentColor" />
                 </svg>
               </button>
+              <select
+                value={layoutMode}
+                onChange={(e) => handleLayoutModeChange(e.target.value)}
+                disabled={pages.length < 2}
+                className="toolbar-button text-sm cursor-pointer"
+                aria-label="Tree layout"
+                title={pages.length < 2 ? 'Add another page to choose a layout' : 'Choose how pages are arranged'}
+              >
+                <option value="tidy">Tree — hierarchy</option>
+                <option value="spine">History — browsing path</option>
+                <option value="grid">Grid — by depth</option>
+              </select>
               <button
                 onClick={handleToggleSplay}
                 className={`toolbar-button ${showNetworkView ? 'active' : ''}`}
@@ -2364,6 +2350,7 @@ const WikiNavTree = () => {
                 >
                   <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
                     {renderEdges()}
+                    {renderGridDepthLabels()}
                     {renderSeeAlsoEdges()}
                     {pages.map(page => (
                       page.isRedirect ? (
@@ -2578,6 +2565,9 @@ const WikiNavTree = () => {
           canGoBack={historyIndex > 0}
           showNetworkView={showNetworkView}
           showRabbitHole={showRabbitHole}
+          layoutMode={layoutMode}
+          onLayoutModeChange={handleLayoutModeChange}
+          canSelectLayout={pages.length >= 2}
         />
       )}
       

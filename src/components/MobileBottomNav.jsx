@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Home, Share2, Menu, Rabbit } from 'lucide-react';
+import { ArrowLeft, Home, Share2, Rabbit, LayoutTemplate } from 'lucide-react';
 
 const MobileBottomNav = ({
   onBack,
@@ -14,9 +14,14 @@ const MobileBottomNav = ({
   canGoBack,
   showNetworkView,
   showRabbitHole,
+  layoutMode,
+  onLayoutModeChange,
+  canSelectLayout,
   className = ""
 }) => {
   const [activeTab, setActiveTab] = useState('tree');
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false);
+  const layoutLabels = { tidy: 'Tree', spine: 'History', grid: 'Grid' };
 
   const handleTabClick = (tab, action) => {
     setActiveTab(tab);
@@ -57,6 +62,43 @@ const MobileBottomNav = ({
         >
           <Home size={16} />
         </button>
+
+        {/* Layout choices live in a compact popover so the touch toolbar stays tap-friendly. */}
+        {onLayoutModeChange && (
+          <div className="relative">
+            <button
+              onClick={() => setShowLayoutMenu(prev => !prev)}
+              disabled={!canSelectLayout}
+              className={`flex items-center gap-1 p-2 rounded-lg text-xs ${canSelectLayout ? 'text-gray-600 hover:bg-gray-50 active:bg-gray-100' : 'cursor-not-allowed text-gray-300'}`}
+              aria-expanded={showLayoutMenu}
+              aria-haspopup="menu"
+              title={canSelectLayout ? `Layout: ${layoutLabels[layoutMode]}` : 'Add another page to choose a layout'}
+            >
+              <LayoutTemplate size={16} />
+              <span>{layoutLabels[layoutMode]}</span>
+            </button>
+            {showLayoutMenu && (
+              <div className="absolute top-full left-1/2 mt-1 w-40 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-1 shadow-lg" role="menu" aria-label="Choose tree layout">
+                {[
+                  ['tidy', 'Tree', 'Parent and child hierarchy'],
+                  ['spine', 'History', 'Your browsing path'],
+                  ['grid', 'Grid', 'Pages grouped by depth'],
+                ].map(([value, label, description]) => (
+                  <button
+                    key={value}
+                    onClick={() => { onLayoutModeChange(value); setShowLayoutMenu(false); }}
+                    className={`block w-full rounded-md px-3 py-2 text-left ${layoutMode === value ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                    role="menuitemradio"
+                    aria-checked={layoutMode === value}
+                  >
+                    <span className="block text-sm font-medium">{label}</span>
+                    <span className="block text-xs text-gray-500">{description}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Fit Graph Button */}
         <button
