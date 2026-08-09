@@ -1323,12 +1323,12 @@ const WikiNavTree = () => {
     return positions;
   };
 
-  // 1) Left-leaning hierarchy. The active history path is the first child at
-  //    every fork, so uninterrupted browsing stays in one vertical left lane.
-  //    Other child subtrees receive consecutive lanes to the right. This is a
-  //    leaf-slot layout: a newly chosen retroactive branch simply claims the
-  //    first slot and pushes existing right-hand subtrees over without overlap.
-  const computeTidyLayout = (pagesArg, isMobileArg, history, histIdx) => {
+  // 1) Left-leaning hierarchy. Existing children retain their insertion order:
+  //    the oldest child continues straight down and newly added siblings branch
+  //    to the right. At each depth, lanes are packed from left to right. A
+  //    longer side branch can therefore fall back into an empty left lane only
+  //    after the earlier path ends, avoiding both node overlap and edge crosses.
+  const computeTidyLayout = (pagesArg, isMobileArg) => {
     const positions = new Map();
     if (pagesArg.length === 0) return positions;
 
@@ -1336,26 +1336,10 @@ const WikiNavTree = () => {
     const parentOf = buildParentMap(pagesArg);
     const roots = pagesArg.filter(p => !parentOf.has(p.id));
 
-    const preferredChild = new Map();
-    const upto = histIdx >= 0 ? histIdx : history.length - 1;
-    for (let i = 0; i < upto; i++) {
-      const parentId = history[i]?.id;
-      const childId = history[i + 1]?.id;
-      if (map.get(parentId)?.children?.includes(childId)) {
-        preferredChild.set(parentId, childId);
-      }
-    }
-
     const buildNode = (page, seen) => {
       if (seen.has(page.id)) return { id: page.id, children: [] };
       seen.add(page.id);
-      const childIds = [...(page.children || [])].sort((a, b) => {
-        const preferred = preferredChild.get(page.id);
-        if (a === preferred) return -1;
-        if (b === preferred) return 1;
-        return 0;
-      });
-      const kids = childIds
+      const kids = (page.children || [])
         .map(cid => map.get(cid))
         .filter(Boolean)
         .map(child => buildNode(child, seen));
@@ -1371,25 +1355,47 @@ const WikiNavTree = () => {
       }
     });
 
-    const rootData = rootNodes.length === 1
-      ? rootNodes[0]
-      : { id: '__synth__', children: rootNodes };
-    const nodeStep = isMobileArg ? 160 : 150;
-    const levelStep = isMobileArg ? 140 : 150;
-    let nextLane = 0;
-
-    const placeNode = (node, depth) => {
-      const childLanes = (node.children || []).map(child => placeNode(child, depth + 1));
-      const lane = childLanes.length > 0 ? childLanes[0] : nextLane++;
-      if (node.id !== '__synth__') {
-        positions.set(node.id, isMobileArg
-          ? { x: depth * levelStep, y: lane * nodeStep }
-          : { x: lane * nodeStep, y: depth * levelStep });
-      }
+    const nodeStep = isMobileArg ? 150 : 130;
+    const levelStep = isMobileArg ? 135 : 135;
+    const occupiedLanes = new Map();
+    const claimLane = (depth, minimum = 0) => {
+      const occupied = occupiedLanes.get(depth) || new Set();
+      occupiedLanes.set(depth, occupied);
+      let lane = minimum;
+      while (occupied.has(lane)) lane++;
+      occupied.add(lane);
       return lane;
     };
 
-    placeNode(rootData, rootData.id === '__synth__' ? -1 : 0);
+    let currentLevel = rootNodes.map((node, index) => ({
+      node,
+      depth: 0,
+      lane: claimLane(0, index),
+    }));
+
+    while (currentLevel.length > 0) {
+      const nextLevel = [];
+      currentLevel.sort((a, b) => a.lane - b.lane).forEach(({ node, depth, lane }) => {
+        positions.set(node.id, isMobileArg
+          ? { x: depth * levelStep, y: lane * nodeStep }
+          : { x: lane * nodeStep, y: depth * levelStep });
+
+        let previousChildLane = null;
+        (node.children || []).forEach((child, childIndex) => {
+          const nextDepth = depth + 1;
+          const occupied = occupiedLanes.get(nextDepth) || new Set();
+          // If this is the first node at a depth, it can reuse the far-left
+          // lane. Otherwise preserve parent/child ordering to prevent crosses.
+          const minimum = childIndex === 0
+            ? (occupied.size === 0 ? 0 : lane)
+            : Math.max(lane + 1, previousChildLane + 1);
+          const childLane = claimLane(nextDepth, minimum);
+          previousChildLane = childLane;
+          nextLevel.push({ node: child, depth: nextDepth, lane: childLane });
+        });
+      });
+      currentLevel = nextLevel;
+    }
 
     return shiftToPadding(positions);
   };
@@ -1607,7 +1613,7 @@ const WikiNavTree = () => {
     } else if (layoutMode === 'grid') {
       positions = computeGridLayout(pages, navigationHistory, isMobile);
     } else {
-      positions = computeTidyLayout(pages, isMobile, navigationHistory, historyIndex);
+      positions = computeTidyLayout(pages, isMobile);
     }
 
     setPages(prev => prev.map(p => {
