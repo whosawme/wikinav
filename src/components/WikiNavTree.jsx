@@ -1323,9 +1323,12 @@ const WikiNavTree = () => {
     return positions;
   };
 
-  // 1) Tidy tree (Reingold-Tilford) via d3.hierarchy + d3.tree.
-  //    Non-overlapping by construction. Transposes for mobile.
-  const computeTidyLayout = (pagesArg, isMobileArg) => {
+  // 1) Left-leaning hierarchy. The active history path is the first child at
+  //    every fork, so uninterrupted browsing stays in one vertical left lane.
+  //    Other child subtrees receive consecutive lanes to the right. This is a
+  //    leaf-slot layout: a newly chosen retroactive branch simply claims the
+  //    first slot and pushes existing right-hand subtrees over without overlap.
+  const computeTidyLayout = (pagesArg, isMobileArg, history, histIdx) => {
     const positions = new Map();
     if (pagesArg.length === 0) return positions;
 
@@ -1333,10 +1336,26 @@ const WikiNavTree = () => {
     const parentOf = buildParentMap(pagesArg);
     const roots = pagesArg.filter(p => !parentOf.has(p.id));
 
+    const preferredChild = new Map();
+    const upto = histIdx >= 0 ? histIdx : history.length - 1;
+    for (let i = 0; i < upto; i++) {
+      const parentId = history[i]?.id;
+      const childId = history[i + 1]?.id;
+      if (map.get(parentId)?.children?.includes(childId)) {
+        preferredChild.set(parentId, childId);
+      }
+    }
+
     const buildNode = (page, seen) => {
       if (seen.has(page.id)) return { id: page.id, children: [] };
       seen.add(page.id);
-      const kids = (page.children || [])
+      const childIds = [...(page.children || [])].sort((a, b) => {
+        const preferred = preferredChild.get(page.id);
+        if (a === preferred) return -1;
+        if (b === preferred) return 1;
+        return 0;
+      });
+      const kids = childIds
         .map(cid => map.get(cid))
         .filter(Boolean)
         .map(child => buildNode(child, seen));
@@ -1344,41 +1363,33 @@ const WikiNavTree = () => {
     };
 
     const seen = new Set();
-    const rootData = roots.length === 1
-      ? buildNode(roots[0], seen)
-      : { id: '__synth__', children: roots.map(r => buildNode(r, seen)) };
-    // Any pages missed (disconnected) attach under synthetic root
+    const rootNodes = roots.map(root => buildNode(root, seen));
+    // Cycles and disconnected nodes become additional top-level lanes.
     pagesArg.forEach(p => {
       if (!seen.has(p.id)) {
-        if (rootData.id !== '__synth__') {
-          // Promote to synthetic root
-          const prev = rootData;
-          rootData.children = undefined;
-          rootData.id = '__synth__';
-          rootData.children = [prev, buildNode(p, seen)];
-        } else {
-          rootData.children.push(buildNode(p, seen));
-        }
+        rootNodes.push(buildNode(p, seen));
       }
     });
 
-    const nodeStep = isMobileArg ? 160 : 120;
+    const rootData = rootNodes.length === 1
+      ? rootNodes[0]
+      : { id: '__synth__', children: rootNodes };
+    const nodeStep = isMobileArg ? 160 : 150;
     const levelStep = isMobileArg ? 140 : 150;
+    let nextLane = 0;
 
-    const hRoot = d3.hierarchy(rootData);
-    d3.tree().nodeSize([nodeStep, levelStep])(hRoot);
-
-    hRoot.each(node => {
-      if (node.data.id === '__synth__') return;
-      // d3.tree: node.x = sibling axis, node.y = depth axis.
-      // Desktop (vertical tree): x -> screenX, y -> screenY.
-      // Mobile (horizontal tree): rotate 90° -> screenX=y, screenY=x.
-      if (isMobileArg) {
-        positions.set(node.data.id, { x: node.y, y: node.x });
-      } else {
-        positions.set(node.data.id, { x: node.x, y: node.y });
+    const placeNode = (node, depth) => {
+      const childLanes = (node.children || []).map(child => placeNode(child, depth + 1));
+      const lane = childLanes.length > 0 ? childLanes[0] : nextLane++;
+      if (node.id !== '__synth__') {
+        positions.set(node.id, isMobileArg
+          ? { x: depth * levelStep, y: lane * nodeStep }
+          : { x: lane * nodeStep, y: depth * levelStep });
       }
-    });
+      return lane;
+    };
+
+    placeNode(rootData, rootData.id === '__synth__' ? -1 : 0);
 
     return shiftToPadding(positions);
   };
@@ -1553,7 +1564,7 @@ const WikiNavTree = () => {
 
   // Auto-fit: if tree fits well within the SVG pane, scale + center it;
   // otherwise leave current zoom/pan so user can pan/scroll.
-  const autoFitLayout = (positions, forceFit = false) => {
+  const autoFitLayout = (positions, forceFit = false, alignLeft = false) => {
     if (!svgRef.current || positions.size === 0) return;
     const svgW = svgRef.current.clientWidth;
     const svgH = svgRef.current.clientHeight;
@@ -1574,7 +1585,7 @@ const WikiNavTree = () => {
     if (forceFit || fits) {
       setZoom(scale);
       setPan({
-        x: (svgW - treeW * scale) / 2 - (minX - nodePad) * scale,
+        x: alignLeft ? 60 - minX * scale : (svgW - treeW * scale) / 2 - (minX - nodePad) * scale,
         y: (svgH - treeH * scale) / 2 - (minY - nodePad) * scale,
       });
     }
@@ -1596,7 +1607,7 @@ const WikiNavTree = () => {
     } else if (layoutMode === 'grid') {
       positions = computeGridLayout(pages, navigationHistory, isMobile);
     } else {
-      positions = computeTidyLayout(pages, isMobile);
+      positions = computeTidyLayout(pages, isMobile, navigationHistory, historyIndex);
     }
 
     setPages(prev => prev.map(p => {
@@ -1604,7 +1615,7 @@ const WikiNavTree = () => {
       return pos ? { ...p, x: pos.x, y: pos.y } : p;
     }));
 
-    autoFitLayout(positions, fitAfterLayoutRef.current);
+    autoFitLayout(positions, fitAfterLayoutRef.current, layoutMode === 'tidy' && !isMobile);
     fitAfterLayoutRef.current = false;
   };
 
